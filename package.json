@@ -1,0 +1,34 @@
+{
+  "name": "sim",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yousefamar/p2p-sim.git"
+  },
+  "keywords": [
+    "p2p",
+    "topology",
+    "topologies",
+    "simulation"
+  ],
+  "author": "Yousef Amar <yousef@amar.io> (http://yousefamar.com/)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/yousefamar/p2p-sim/issues"
+  },
+  "homepage": "https://github.com/yousefamar/p2p-sim#readme",
+  "dependencies": {
+    "express": "^4.17.1",
+    "socket.io": "^2.2.0",
+    "split": "^1.0.1"
+  }
+}
