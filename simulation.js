@@ -1,145 +1,188 @@
-class Peer {
-	constructor(id, x, y) {
-		this.id = id;
-		this.x = x;
-		this.y = y;
-		this.connections = [];
-		this.visited = false;
-		this.activeCount = 0;
-	}
+const cytoscape = require('cytoscape');
+const euler     = require('cytoscape-euler');
+cytoscape.use(euler);
 
-	move(x, y) {
-		this.x = x;
-		this.y = y;
-		this.connections.forEach(c => c.recomputeDistance());
-	}
-}
+let PLNetwork = require('./network.js').PLNetwork;
 
-class Connection {
-	static _id = 0;
-
-	constructor(peerA, peerB) {
-		this.peerA = peerA;
-		this.peerB = peerB;
-		this.id = Connection._id++;
-		this.distance = -1;
-		this.active = false;
-		this.redundant = false;
-	}
-
-	activate() {
-		if (!this.active) {
-			++this.peerA.activeCount;
-			++this.peerB.activeCount;
-		}
-		this.active = true;
-	}
-
-	deactivate() {
-		if (this.active) {
-			--this.peerA.activeCount;
-			--this.peerB.activeCount;
-		}
-		this.active = false;
-		this.redundant = false;
-	}
-
-	recomputeDistance() {
-		let dx = this.peerB.x - this.peerA.x;
-		let dy = this.peerB.y - this.peerA.y;
-		this.distance = Math.sqrt(dx * dx + dy * dy);
-		return this;
-	}
-}
+let dist = (a, b) => {
+	let dx = b.x - a.x;
+	let dy = b.y - a.y;
+	return Math.sqrt(dx * dx + dy * dy);
+};
 
 class Simulation {
 	constructor() {
-		this.peers = [];
-		this.peersByID = {};
-		this.connections = [];
-		this.activeConnections = [];
-		this.minK = 1;
-	}
-
-	addPeer(peer) {
-		for (let other of this.peers) {
-			let connection = new Connection(peer, other).recomputeDistance();
-			other.connections.push(connection);
-			peer.connections.push(connection);
-			this.connections.push(connection);
-		}
-		this.peers.push(peer);
-		this.peersByID[peer.id] = peer;
-	}
-
-	removePeer(peer) {
-		// TODO: Optimise
-		for (let c of peer.connections) {
-			let other = c.peerA === peer ? c.peerB : c.peerA;
-			other.connections.splice(other.connections.indexOf(c), 1);
-		}
-		for (let connection of peer.connections)
-			this.connections.splice(this.connections.indexOf(connection), 1);
-		this.activeConnections = this.connections.filter(c => c.active);
-		this.peers.splice(this.peers.indexOf(peer), 1);
-		delete this.peersByID[peer.id];
-	}
-
-	crawlMST(peer, connectionQueue) {
-		peer.visited = true;
-		for (let c of peer.connections) {
-			if (c.active || connectionQueue.indexOf(c) >= 0)
-				continue;
-			let other = peer === c.peerA ? c.peerB : c.peerA;
-			if (other.visited)
-				continue;
-			connectionQueue.push(c);
-		}
-		if (!connectionQueue.length)
-			return;
-		connectionQueue.sort((a, b) => a.distance - b.distance);
-		while (connectionQueue.length) {
-			let c = connectionQueue.shift();
-			if (c.peerA.visited && c.peerB.visited)
-				continue;
-			c.activate();
-			this.crawlMST(c.peerA.visited ? c.peerB : c.peerA, connectionQueue);
-			return;
-		}
-	};
-
-	computeMST() {
-		if (this.peers.length < 1)
-			return;
-		for (let p of this.peers)
-			p.visited = false;
-		for (let c of this.connections)
-			c.deactivate();
-		this.crawlMST(this.peers[0], []);
-		for (let p of this.peers) {
-			if (p.activeCount < this.minK) {
-				p.connections.forEach(c => {
-					if (c.peerA.activeCount < this.minK && c.peerB.activeCount < this.minK)
-						c.modifiedDistace = 0.5 * c.distance;
-					else
-						c.modifiedDistace = c.distance;
-				});
-				p.connections.sort((a, b) => a.modifiedDistace - b.modifiedDistace);
-				for (let c of p.connections) {
-					if (c.active)
-						continue;
-					c.activate();
-					c.redundant = true;
-					if (p.activeCount >= this.minK)
-						break;
+		this.minK = 2;
+		//this.metricWeights = [];
+		let network = this.network = new PLNetwork();
+		let recomputeWeight = function() {
+			let source = this.source();
+			let target = this.target();
+			let distance = dist(source.position(), target.position());
+			this.data('dist', distance);
+			this.data('weight', 0.8 * this.data('lat') + 0.2 * distance);
+		};
+		this.world = cytoscape()
+			.on('add', event => {
+				let elem = event.target;
+				if (elem.group() === 'edges') {
+					elem.scratch('_p2p-sim', {});
+					elem.scratch('_p2p-sim').recomputeWeight = recomputeWeight.bind(elem);
+					elem.scratch('_p2p-sim').recomputeWeight();
 				}
+			})
+			//.on('remove', console.log)
+			.on('position', event => {
+				let elem = event.target;
+				if (elem.group() === 'nodes')
+					elem.connectedEdges().forEach(e => e.scratch('_p2p-sim').recomputeWeight());
+			});
+	}
+
+	async init() {
+		await this.network.init();
+	}
+
+	getPeer(id) {
+		return this.world.$id(id);
+	}
+
+	spawn(player) {
+		player.ip = this.network.getIP();
+		let peer = this.world.add({
+			data: {
+				id: player.id,
+				shortID: player.id.slice(-2),
+				ip: player.ip
+			},
+			position: {
+				x: player.x || 0,
+				y: player.y || 0,
 			}
+		});
+		this.world.nodes(`[ id != "${player.id}"]`).forEach(other => {
+			this.world.add({
+				data: {
+					id: player.id + '-' + other.id(),
+					source: player.id,
+					target: other.id(),
+					active: false,
+					weight: -1,
+					lat: this.network.dist(player.ip, other.data().ip),
+					//lat: this.network.$id(player.ip).edgesWith(`[ id = "${other.data().ip}" ]`).data('meanLat'),
+					dist: -1,
+					trust: -1,
+					redundant: false
+				}
+			});
+		});
+		return peer;
+	}
+
+	updatePos(peer, x, y) {
+		peer.position({ x, y });
+	}
+
+	despawn(peer) {
+		this.network.releaseIP(peer.data('ip'));
+		this.world.remove(peer);
+	}
+
+	aoicast(fw, ts, from, bytes, aoiRadius) {
+		let tos = this.world.nodes(`[ id != "${from.id()}"]`).filter(to => dist(to.position(), from.position()) <= aoiRadius);
+		return this.multicast(fw, ts, from, tos, bytes);
+	}
+
+	broadcast(fw, ts, from, bytes) {
+		let tos = this.world.nodes(`[ id != "${from.id()}"]`);
+		return this.multicast(fw, ts, from, tos, bytes);
+	}
+
+	multicast(fw, ts, from, tos, bytes) {
+		let out = {
+			lats: [],
+			infos: []
+		};
+
+		// No receivers -> no traffic
+		if (tos.length < 1)
+			return out;
+
+		let paths = this.world.collection();
+		tos.forEach(to => {
+			let path = fw.path(from, to);
+			let lat  = fw.distance(from, to);
+			out.lats.push(lat);
+			if (path.edges().length < 1)
+				throw 'Something went horribly, terribly wrong; network disconnected';
+			paths = paths.union(path);
+		});
+
+		// This would be so much simpler recursive
+		this.world.nodes().data('visited', true);
+		paths.nodes().data('visited', false);
+		let queue = [
+			{ ts: +ts, lat: 0, to: from }
+		];
+
+		while (queue.length > 0) {
+			let arrival = queue.shift();
+			arrival.to.data('visited', true);
+
+			let nextNodes = arrival.to.openNeighborhood('[!visited]').nodes();
+
+			nextNodes.forEach(n => {
+				let lat = +arrival.to.edgesWith(n).data('lat');
+				queue.push({ ts: arrival.ts + lat, lat: lat, to: n });
+			});
+
+			let info = {
+				ts: arrival.ts,
+				peerCount: this.world.nodes().length,
+				hops: 1,
+				latency: arrival.lat,
+				sender: arrival.to.id(),
+				up: nextNodes.length * bytes,
+				down: bytes,
+			};
+
+			if (arrival.to === from) {
+				info.hops = 0;
+				info.down = 0;
+			}
+
+			out.infos.push(info);
 		}
-		this.activeConnections = this.connections.filter(c => c.active);
+
+		return out;
+	}
+
+	unicast(fw, ts, from, to, bytes) {
+		return this.multicast(fw, ts, from, [ to ], bytes);
+	}
+
+	async renderActivations() {
+		let layout = this.world.elements().layout({
+			name: 'euler',
+			boundingBox: {
+				x1: 0,
+				y1: 0,
+				w: 1000,
+				h: 1000
+			},
+			randomize: true,
+			//gravity: 0,
+			animate: false,
+			springLength: e => e.data().weight
+		});
+
+		layout.run();
+
+		//await new Promise(resolve => layout.on('layoutstop', resolve));
+
+		await require('./save-graph.js')(this.world.elements('node, edge[?active]'), './out/snapshots/mst.png');
+		//await require('./save-graph.js')(this.world.elements(), './out/snapshots/full.png');
 	}
 }
 
-module.exports = {
-	Peer,
-	Simulation
-};
+module.exports = Simulation;

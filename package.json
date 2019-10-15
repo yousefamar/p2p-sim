@@ -27,8 +27,18 @@
   },
   "homepage": "https://github.com/yousefamar/p2p-sim#readme",
   "dependencies": {
+    "arangojs": "^6.11.1",
+    "cli-progress": "^3.1.0",
+    "cytoscape": "^3.10.0",
+    "cytoscape-euler": "^1.2.1",
+    "cytosnap": "^3.1.0",
     "delaunator": "^4.0.0",
+    "exit-hook": "^2.2.0",
     "express": "^4.17.1",
+    "image-data-uri": "^2.0.1",
+    "request": "^2.88.0",
+    "request-promise-native": "^1.0.7",
+    "skmeans": "^0.11.2",
     "socket.io": "^2.2.0",
     "split": "^1.0.1"
   }
