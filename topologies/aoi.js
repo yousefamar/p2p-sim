@@ -13,15 +13,14 @@ module.exports = class AOI extends Topology {
 	}
 
 	recompute(world, sim) {
-		world.edges().data('active', false);
-		world.edges().data('redundant', false);
+		world.edges().data('active' + this.hash, false);
 
 		let peers = world.nodes().toArray();
 
 		for (let i = 0; i < peers.length; ++i) {
 			for (let j = i + 1; j < peers.length; ++j) {
 				if (AOI.dist(peers[i].position(), peers[j].position()) <= this.aoiRadius)
-					peers[i].edgesWith(peers[j]).data('active', true);
+					peers[i].edgesWith(peers[j]).data('active' + this.hash, true);
 			}
 		}
 

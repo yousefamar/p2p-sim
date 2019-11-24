@@ -41,8 +41,8 @@ connections = read.csv('./out/connections.csv')
 colnames(connections) = c('players', 'connections', 'Topology')
 connections['connectedness'] = 2 * connections['connections'] / (connections['players'] * (connections['players'] - 1))
 connections$connectedness[connections$players < 2 ] = 1
-updown = read.csv('./out/updown.csv')
-colnames(updown) = c('playerID', 'Topology', 'up', 'down')
+#updown = read.csv('./out/updown.csv')
+#colnames(updown) = c('playerID', 'Topology', 'up', 'down')
 meanLats = aggregate(latency ~ Topology, data = latencies, mean)
 meanConn = aggregate(connectedness ~ Topology, data = connections, mean)
 latCon = merge(meanLats, meanConn)
@@ -165,6 +165,8 @@ ggplot(connections, aes(x=players, y=connectedness, group=Topology)) +
 
 ggsave('./out/plots/connectedness.pdf', width = 18)
 embed_fonts('./out/plots/connectedness.pdf')
+
+exit()
 
 #
 # Upload distributions by topology

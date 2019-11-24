@@ -10,6 +10,16 @@ let dist = (a, b) => {
 	return Math.sqrt(dx * dx + dy * dy);
 };
 
+let isWithinAOI = (a, b, radius) => {
+	let dx = b.x - a.x;
+	if (Math.abs(dx) > radius)
+		return false;
+	let dy = b.y - a.y;
+	if (Math.abs(dy) > radius)
+		return false;
+	return Math.sqrt(dx * dx + dy * dy) <= radius;
+};
+
 class Simulation {
 	constructor() {
 		this.minK = 2;
@@ -52,8 +62,9 @@ class Simulation {
 		let peer = this.world.add({
 			data: {
 				id: player.id,
-				shortID: player.id.slice(-2),
-				ip: player.ip
+				shortID: player.id,//.slice(-2),
+				ip: player.ip,
+				netPos: this.network.cy.nodes(`[id = "${player.ip}"]`).position()
 			},
 			position: {
 				x: player.x || 0,
@@ -88,17 +99,17 @@ class Simulation {
 		this.world.remove(peer);
 	}
 
-	aoicast(fw, ts, from, bytes, aoiRadius) {
-		let tos = this.world.nodes(`[ id != "${from.id()}"]`).filter(to => dist(to.position(), from.position()) <= aoiRadius);
-		return this.multicast(fw, ts, from, tos, bytes);
+	aoicast(topo, ts, from, bytes, aoiRadius) {
+		let tos = this.world.nodes(`[ id != "${from.id()}"]`).filter(to => isWithinAOI(from.position(), to.position(), aoiRadius));
+		return this.multicast(topo, ts, from, tos, bytes);
 	}
 
-	broadcast(fw, ts, from, bytes) {
+	broadcast(topo, ts, from, bytes) {
 		let tos = this.world.nodes(`[ id != "${from.id()}"]`);
-		return this.multicast(fw, ts, from, tos, bytes);
+		return this.multicast(topo, ts, from, tos, bytes);
 	}
 
-	multicast(fw, ts, from, tos, bytes) {
+	multicast(topo, ts, from, tos, bytes) {
 		let out = {
 			lats: [],
 			infos: []
@@ -110,8 +121,8 @@ class Simulation {
 
 		let paths = this.world.collection();
 		tos.forEach(to => {
-			let path = fw.path(from, to);
-			let lat  = fw.distance(from, to);
+			let path = topo.fw.path(from, to);
+			let lat  = topo.fw.distance(from, to);
 			out.lats.push(lat);
 			if (path.edges().length < 1)
 				throw 'Something went horribly, terribly wrong; network disconnected';
@@ -128,6 +139,21 @@ class Simulation {
 		while (queue.length > 0) {
 			let arrival = queue.shift();
 			arrival.to.data('visited', true);
+
+			// Store info in node
+			if (queue.to !== from) {
+				let remote = arrival.to;
+				remote.data().topos = remote.data().topos || {};
+				remote.data().topos[topo.name] = remote.data().topos[topo.name] || {};
+				let t = remote.data().topos[topo.name];
+				t.poss = t.poss || {};
+				t.poss[from.id()] = t.poss[from.id()] || [];
+				t.poss[from.id()].push({
+					ts: arrival.ts,
+					x: from.position().x,
+					y: from.position().y
+				});
+			}
 
 			let nextNodes = arrival.to.openNeighborhood('[!visited]').nodes();
 
@@ -157,8 +183,8 @@ class Simulation {
 		return out;
 	}
 
-	unicast(fw, ts, from, to, bytes) {
-		return this.multicast(fw, ts, from, [ to ], bytes);
+	unicast(topo, ts, from, to, bytes) {
+		return this.multicast(topo, ts, from, [ to ], bytes);
 	}
 
 	async renderActivations() {

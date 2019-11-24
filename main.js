@@ -2,15 +2,17 @@ const fs = require('fs');
 const cliProgress = require('cli-progress');
 const Simulation = require('./simulation.js');
 const MLTracePlayback = require('./ml-trace-playback.js');
+const GenPlayback = require('./gen-playback.js');
 const topologies = require('./topologies.js');
 const saveGraph = require('./save-graph.js');
-const exitHook = require('exit-hook');
+//const exitHook = require('exit-hook');
 
-const TAKE_SNAPS    = false;
+const TAKE_SNAPS    = true;
 const WRITE_TRAFFIC = false;
 
 let sim = new Simulation();
-let playback = new MLTracePlayback('mlrecs/2019-08-12-starbucks-msgs.mlrec', 'mlrecs/2019-08-12-starbucks-stat.mlrec');
+//let playback = new MLTracePlayback('mlrecs/2019-08-12-starbucks-msgs.mlrec', 'mlrecs/2019-08-12-starbucks-stat.mlrec');
+let playback = new GenPlayback();
 
 let topos = Object.entries({
 	'ClientServer': {},
@@ -32,22 +34,23 @@ let topos = Object.entries({
 });
 
 let nextSnap     = 0;
-let snapInterval = 5000;
+let snapInterval = 1000;
+let topoInterval = 1000;
 let takeSnap     = false;
 
-const trafficStream     = fs.createWriteStream('./out/traffic.csv');
-const latencyStream     = fs.createWriteStream('./out/latency.csv');
-const connectionsStream = fs.createWriteStream('./out/connections.csv');
+const trafficStream     = fs.openSync('./out/traffic.csv', 'w');
+const latencyStream     = fs.openSync('./out/latency.csv', 'w');
+const connectionsStream = fs.openSync('./out/connections.csv', 'w');
+//const topoTimingStream  = fs.openSync('./out/topo-timing.csv', 'w');
+const driftStream       = fs.openSync('./out/drift.csv', 'w');
 
 let recomputeTopologies = () => {
-	let save = sim.snap;
-	if (save)
-		sim.snap = false;
 	topos.forEach(t => {
-		t.fw = t.recompute(sim.world, sim)
-		if (TAKE_SNAPS)
-			t.last = sim.world.elements().clone();
-		connectionsStream.write(`${sim.world.nodes().length},${sim.world.edges('[?active]').length},${t.name}\n`);
+		//let start = new Date().getTime()
+		t.fw = t.recompute(sim.world, sim);
+		//let elapsed = new Date().getTime() - start;
+		//fs.writeSync(topoTimingStream, `${sim.world.nodes().length},${elapsed},${t.name}\n`);
+		//fs.writeSync(connectionsStream, `${sim.world.nodes().length},${sim.world.edges('[?active]').length},${t.name}\n`);
 	});
 };
 
@@ -62,6 +65,13 @@ let infoToLines = (info, topo, msgID) => {
 		.join('\n');
 };
 
+let dist = (a, b) => {
+	let dx = b.x - a.x;
+	let dy = b.y - a.y;
+	return Math.sqrt(dx * dx + dy * dy);
+}
+
+/*
 exitHook(() => {
 	console.log();
 	console.log('Saving uploads and downloads before exiting...');
@@ -78,6 +88,7 @@ exitHook(() => {
 	fs.writeFileSync('./out/updown.csv', lines);
 	console.log('Done');
 });
+*/
 
 playback
 	.once('time', ts => {
@@ -92,6 +103,67 @@ playback
 	.on('time', ts => {
 		progress = ts - startTS;
 		progressBar.update(progress);
+		if (ts % topoInterval)
+			recomputeTopologies();
+		if (TAKE_SNAPS) {
+			topos.forEach(t => {
+				t.snapsTaken = t.snapsTaken || 0;
+				let dir = './out/snapshots-json/' + t.name + '/';
+				let json = sim.world.elements().jsons();
+				json[0].topoHash = t.hash;
+				fs.mkdirSync(dir, { recursive: true });
+				fs.writeFileSync(dir + (t.snapsTaken++).toString().padStart(7, '0') + '.json', JSON.stringify(json));
+			});
+		}
+
+		let peers = sim.world.nodes().toArray();
+
+		topos.forEach(t => {
+			for (let i = 0; i < peers.length; ++i) {
+				peers[i].data().topos = peers[i].data().topos || {};
+				peers[i].data().topos[t.name] = peers[i].data().topos[t.name] || {};
+				peers[i].data().topos[t.name].poss = peers[i].data().topos[t.name].poss || {};
+				let poss = peers[i].data().topos[t.name].poss;
+				peers[i].data().topos[t.name].pos = peers[i].data().topos[t.name].pos || {};
+				let pos = peers[i].data().topos[t.name].pos;
+				for (let id in poss) {
+					let p = poss[id];
+					while (p.length && ts >= p[0].ts) {
+						pos[id] = p.shift();
+					}
+				}
+			}
+
+			let totalDrift = 0;
+			for (let i = 0; i < peers.length; ++i) {
+				let local = peers[i];
+				let localMeanDrift = 0;
+				let localSamples   = 0;
+				for (let j = 0; j < peers.length; ++j) {
+					if (i === j)
+						continue;
+
+					let remote = peers[j];
+
+					let assumedPos = local.data().topos[t.name].pos[remote.id()];
+					if (!assumedPos)
+						// Local has no idea where remote is, so ignore
+						continue;
+					let actualPos = remote.position();
+
+					localMeanDrift += dist(actualPos, assumedPos);
+					++localSamples;
+				}
+				if (localSamples < 1)
+					continue;
+				localMeanDrift /= localSamples;
+				totalDrift += localMeanDrift;
+			}
+
+			fs.writeSync(driftStream, `${sim.world.nodes().length},${totalDrift/sim.world.nodes().length},${t.name}\n`);
+		});
+
+		return;
 		if (!TAKE_SNAPS || ts < nextSnap)
 			return;
 		playback.pause();
@@ -131,7 +203,6 @@ playback
 			return;
 		}
 		sim.updatePos(peer, x, y);
-		recomputeTopologies();
 	})
 	.on('aoicast', (ts, id, bytes, aoiRadius) => {
 		let peer = sim.getPeer(id);
@@ -140,7 +211,8 @@ playback
 			return;
 		}
 		for (let t of topos) {
-			let out = sim.aoicast(t.fw, ts, peer, bytes, aoiRadius);
+			let out = sim.aoicast(t, ts, peer, bytes, aoiRadius);
+			continue;
 			for (let lat of out.lats)
 				latencyStream.write(`${lat},${t.name}\n`);
 

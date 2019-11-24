@@ -3,17 +3,30 @@ const imageDataURI = require('image-data-uri');
 
 cytosnap.use([ 'cytoscape-euler' ]);
 
-module.exports = async (graph, path, layout = { name: 'preset' }) => {
-	let snap = new cytosnap();
+let snap = null;
+
+module.exports = async (graph, path, layout = { name: 'preset', fit: false }) => {
+	layout.zoom = 0.5;
+	layout.boundingBox = {
+		x1: 0,
+		y1: 0,
+		w: 2000,
+		h: 2000
+	};
+	if (!snap) {
+		snap = new cytosnap();
+		await snap.start();
+	}
 
 	//let r = await new Promise(resolve => setTimeout(resolve, 3000));
 	//await new Promise(resolve => graph.ready(resolve));
 
 	let elements = (typeof graph.elements === 'function') ? graph.elements() : graph;
+	elements = (typeof elements.jsons === 'function') ? elements.jsons() : elements;
+	let hash = elements[0].topoHash || '';
 
-	await snap.start();
 	let dataURI = await snap.shot({
-		elements: elements.jsons(),
+		elements: elements,
 		layout: layout,
 		style: [{
 			selector: 'node',
@@ -26,6 +39,11 @@ module.exports = async (graph, path, layout = { name: 'preset' }) => {
 				'text-outline-width': 3
 			}
 		}, {
+			selector: 'node[?super'+hash+']',
+			style: {
+				'background-color': 'red',
+			}
+		}, {
 			selector: 'edge',
 			style: {
 				'curve-style': 'haystack',
@@ -35,13 +53,13 @@ module.exports = async (graph, path, layout = { name: 'preset' }) => {
 				'line-color': 'lightgrey'
 			}
 		}, {
-			selector: 'edge[?active]',
+			selector: 'edge[?active'+hash+']',
 			style: {
 				'opacity': 0.8,
 				'line-color': 'black'
 			}
 		}, {
-			selector: 'edge[?redundant]',
+			selector: 'edge[?redundant'+hash+']',
 			style: {
 				'opacity': 0.8,
 				'line-color': 'red'
@@ -49,8 +67,10 @@ module.exports = async (graph, path, layout = { name: 'preset' }) => {
 		}],
 		resolvesTo: 'base64uri',
 		format: 'png',
-		width: 1280,
-		height: 720,
+		width: 1000,
+		height: 1000,
+		//width: 1280,
+		//height: 720,
 		background: 'transparent'
 	});
 
@@ -58,5 +78,5 @@ module.exports = async (graph, path, layout = { name: 'preset' }) => {
 
 	console.log("Image written to", path);
 
-	await snap.stop();
+	//await snap.stop();
 };

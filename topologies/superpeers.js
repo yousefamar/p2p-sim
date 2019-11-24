@@ -15,26 +15,34 @@ module.exports = class Superpeers extends Topology {
 	}
 
 	recompute(world, sim) {
-		world.edges().data('active', false);
-		world.edges().data('redundant', false);
-		world.nodes().data('super', false);
+		let activeStr = 'active' + this.hash;
+		let superStr  = 'super' + this.hash;
+		world.edges().data(activeStr, false);
+		world.nodes().data(superStr, false);
 
 		let peers = world.nodes().toArray();
 
 		if (!this.shouldUseKmeans) {
 			let supers = peers.splice(0, this.superpeerCount);
-			supers.forEach(s => s.data('super', true));
-			world.nodes('[?super]').edgesWith(world.nodes('[?super]')).data('active', true);
+			supers.forEach(s => s.data(superStr, true));
+			world.nodes('[?'+superStr+']').edgesWith(world.nodes('[?'+superStr+']')).data(activeStr, true);
 			// Round-robin them across the supers
 			for (let i = 0; i < peers.length; ++i) {
 				let j = i % this.superpeerCount;
-				peers[i].edgesWith(supers[j]).data('active', true);
+				peers[i].edgesWith(supers[j]).data(activeStr, true);
 			}
 			return super.recompute(world, sim);
 		}
 
-		let poss = peers.map(p => [ p.position('x'), p.position('y') ]);
-		let res  = skmeans(poss, Math.min(this.superpeerCount, peers.length), 'kmpp');
+		if (world.nodes().length !== this.lastLen || world.nodes('[!kMeansed' + this.superpeerCount + ']').nonempty()) {
+			let poss = peers.map(p => [ p.data('netPos').x, p.data('netPos').y ]);
+			this.lastSkmeans = skmeans(poss, Math.min(this.superpeerCount, peers.length), 'kmpp');
+		}
+		let res = this.lastSkmeans;
+
+		world.nodes().data('kMeansed' + this.superpeerCount, true);
+		this.lastLen = world.nodes().length;
+
 		let supers = [];
 
 		// Get peers closest to centroids
@@ -49,12 +57,12 @@ module.exports = class Superpeers extends Topology {
 			supers.push(peers.splice(closestPeerID, 1)[0]);
 		}
 
-		supers.forEach(s => s.data('super', true));
-		world.nodes('[?super]').edgesWith(world.nodes('[?super]')).data('active', true);
+		supers.forEach(s => s.data(superStr, true));
+		world.nodes('[?'+superStr+']').edgesWith(world.nodes('[?'+superStr+']')).data(activeStr, true);
 
 		peers = world.nodes().toArray();
 		for (let i = 0; i < res.idxs.length; ++i)
-			peers[i].edgesWith(supers[res.idxs[i]]).data('active', true);
+			peers[i].edgesWith(supers[res.idxs[i]]).data(activeStr, true);
 
 		return super.recompute(world, sim);
 	}
