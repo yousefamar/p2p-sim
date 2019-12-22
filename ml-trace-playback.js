@@ -126,7 +126,8 @@ module.exports = class MLTracePlayback extends EventEmitter {
 				this.emit('spawn', (player = {
 					id: packet.data.data.rid,
 					x: packet.data.data.pos.x,
-					y: packet.data.data.pos.y
+					y: packet.data.data.pos.y,
+					ts: packet.ts
 				}));
 				//this.emit('broadcast', packet.ts, player.id, packet.bytes);
 				this.emit('aoicast', packet.ts, player.id, packet.bytes, MLTracePlayback.aoiRadius);
@@ -135,7 +136,7 @@ module.exports = class MLTracePlayback extends EventEmitter {
 			case 'PLAYER_DESPAWN':
 				//this.emit('broadcast', packet.ts, packet.data.data.rid, packet.bytes);
 				this.emit('aoicast', packet.ts, packet.data.data.rid, packet.bytes, MLTracePlayback.aoiRadius);
-				this.emit('despawn', packet.data.data.rid);
+				this.emit('despawn', packet.data.data.rid, packet.ts);
 				this.emit('time', +packet.ts);
 				break;
 
@@ -144,7 +145,7 @@ module.exports = class MLTracePlayback extends EventEmitter {
 				//////////////////////
 
 			case 'STAT':
-				this.emit('update', packet.data.rid, packet.data.pos.x, packet.data.pos.y)
+				this.emit('update', packet.data.rid, packet.data.pos.x, packet.data.pos.y, packet.ts)
 				this.emit('aoicast', packet.ts, packet.data.rid, packet.bytes, MLTracePlayback.aoiRadius);
 				this.emit('time', +packet.ts);
 				break;
@@ -165,6 +166,8 @@ module.exports = class MLTracePlayback extends EventEmitter {
 			case 'ADDED_LINES':
 			case 'INSTRUMENT_NOTE':
 			case 'SPARKLE_LINE':
+			case 'CLEAR_LINES':
+			case 'BOOST_REJECTED':
 				this.emit('aoicast', packet.ts, packet.data.data.rid, packet.bytes, MLTracePlayback.aoiRadius);
 				this.emit('time', +packet.ts);
 				break;
@@ -176,7 +179,7 @@ module.exports = class MLTracePlayback extends EventEmitter {
 			case 'OWN_INFO':
 				break;
 			default:
-				console.log('Unkown packet type:', packet.type);
+				//console.log('Unkown packet type:', packet.type);
 				break;
 		}
 	}
