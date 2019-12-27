@@ -19,8 +19,9 @@ module.exports = class Topology {
 	}
 
 	recompute(world, sim) {
-		return world.elements('node, edge[?active'+this.hash+']').floydWarshall({
-			weight: e => e.data('lat')
-		});
+		return world.elements('node, edge[?active'+this.hash+']').floydWarshall();
+		//return world.elements('node, edge[?active'+this.hash+']').floydWarshall({
+		//	weight: e => e.data('lat')
+		//});
 	}
 };

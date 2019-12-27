@@ -7,12 +7,12 @@ const topologies = require('./topologies.js');
 const saveGraph = require('./save-graph.js');
 //const exitHook = require('exit-hook');
 
-const TAKE_SNAPS    = true;
+const TAKE_SNAPS    = false;
 const WRITE_TRAFFIC = false;
 
 let sim = new Simulation();
-//let playback = new MLTracePlayback('mlrecs/2019-08-12-starbucks-msgs.mlrec', 'mlrecs/2019-08-12-starbucks-stat.mlrec');
-let playback = new GenPlayback();
+let playback = new MLTracePlayback('mlrecs/2019-08-12-starbucks-msgs.mlrec', 'mlrecs/2019-08-12-starbucks-stat.mlrec');
+//let playback = new GenPlayback();
 
 let topos = Object.entries({
 	'ClientServer': {},
@@ -105,6 +105,8 @@ playback
 		progressBar.update(progress);
 		if (ts % topoInterval)
 			recomputeTopologies();
+
+		return;
 		if (TAKE_SNAPS) {
 			topos.forEach(t => {
 				t.snapsTaken = t.snapsTaken || 0;
@@ -163,7 +165,6 @@ playback
 			fs.writeSync(driftStream, `${sim.world.nodes().length},${totalDrift/sim.world.nodes().length},${t.name}\n`);
 		});
 
-		return;
 		if (!TAKE_SNAPS || ts < nextSnap)
 			return;
 		playback.pause();
@@ -212,6 +213,8 @@ playback
 		}
 		for (let t of topos) {
 			let out = sim.aoicast(t, ts, peer, bytes, aoiRadius);
+			let [ bytesClean, bytesCorrupt ] = out;
+			console.log(bytesClean, bytesCorrupt);
 			continue;
 			for (let lat of out.lats)
 				latencyStream.write(`${lat},${t.name}\n`);

@@ -10,18 +10,9 @@ let dist = (a, b) => {
 	return Math.sqrt(dx * dx + dy * dy);
 };
 
-let isWithinAOI = (a, b, radius) => {
-	let dx = b.x - a.x;
-	if (Math.abs(dx) > radius)
-		return false;
-	let dy = b.y - a.y;
-	if (Math.abs(dy) > radius)
-		return false;
-	return Math.sqrt(dx * dx + dy * dy) <= radius;
-};
-
 class Simulation {
-	constructor() {
+	constructor(chanceOfEvil = 0.0) {
+		this.chanceOfEvil = chanceOfEvil;
 		this.minK = 2;
 		//this.metricWeights = [];
 		let network = this.network = new PLNetwork();
@@ -59,12 +50,18 @@ class Simulation {
 
 	spawn(player) {
 		player.ip = this.network.getIP();
+		let isEvil = Math.random() < this.chanceOfEvil;
+		let netPos = this.network.cy.nodes(`[id = "${player.ip}"]`).position();
 		let peer = this.world.add({
 			data: {
 				id: player.id,
 				shortID: player.id,//.slice(-2),
 				ip: player.ip,
-				netPos: this.network.cy.nodes(`[id = "${player.ip}"]`).position()
+				netPos: {
+					x: isEvil? (netPos.x * 1000000) : netPos.x,
+					y: isEvil? (netPos.y * 1000000) : netPos.y
+				},
+				evil: isEvil
 			},
 			position: {
 				x: player.x || 0,
@@ -79,7 +76,7 @@ class Simulation {
 					target: other.id(),
 					active: false,
 					weight: -1,
-					lat: this.network.dist(player.ip, other.data().ip),
+					lat: this.network.dist(player.ip, other.data().ip) + (isEvil ? 1000000000 : 0),
 					//lat: this.network.$id(player.ip).edgesWith(`[ id = "${other.data().ip}" ]`).data('meanLat'),
 					dist: -1,
 					trust: -1,
@@ -97,94 +94,6 @@ class Simulation {
 	despawn(peer) {
 		this.network.releaseIP(peer.data('ip'));
 		this.world.remove(peer);
-	}
-
-	aoicast(topo, ts, from, bytes, aoiRadius) {
-		let tos = this.world.nodes(`[ id != "${from.id()}"]`).filter(to => isWithinAOI(from.position(), to.position(), aoiRadius));
-		return this.multicast(topo, ts, from, tos, bytes);
-	}
-
-	broadcast(topo, ts, from, bytes) {
-		let tos = this.world.nodes(`[ id != "${from.id()}"]`);
-		return this.multicast(topo, ts, from, tos, bytes);
-	}
-
-	multicast(topo, ts, from, tos, bytes) {
-		let out = {
-			lats: [],
-			infos: []
-		};
-
-		// No receivers -> no traffic
-		if (tos.length < 1)
-			return out;
-
-		let paths = this.world.collection();
-		tos.forEach(to => {
-			let path = topo.fw.path(from, to);
-			let lat  = topo.fw.distance(from, to);
-			out.lats.push(lat);
-			if (path.edges().length < 1)
-				throw 'Something went horribly, terribly wrong; network disconnected';
-			paths = paths.union(path);
-		});
-
-		// This would be so much simpler recursive
-		this.world.nodes().data('visited', true);
-		paths.nodes().data('visited', false);
-		let queue = [
-			{ ts: +ts, lat: 0, to: from }
-		];
-
-		while (queue.length > 0) {
-			let arrival = queue.shift();
-			arrival.to.data('visited', true);
-
-			// Store info in node
-			if (queue.to !== from) {
-				let remote = arrival.to;
-				remote.data().topos = remote.data().topos || {};
-				remote.data().topos[topo.name] = remote.data().topos[topo.name] || {};
-				let t = remote.data().topos[topo.name];
-				t.poss = t.poss || {};
-				t.poss[from.id()] = t.poss[from.id()] || [];
-				t.poss[from.id()].push({
-					ts: arrival.ts,
-					x: from.position().x,
-					y: from.position().y
-				});
-			}
-
-			let nextNodes = arrival.to.openNeighborhood('[!visited]').nodes();
-
-			nextNodes.forEach(n => {
-				let lat = +arrival.to.edgesWith(n).data('lat');
-				queue.push({ ts: arrival.ts + lat, lat: lat, to: n });
-			});
-
-			let info = {
-				ts: arrival.ts,
-				peerCount: this.world.nodes().length,
-				hops: 1,
-				latency: arrival.lat,
-				sender: arrival.to.id(),
-				up: nextNodes.length * bytes,
-				down: bytes,
-			};
-
-			if (arrival.to === from) {
-				info.hops = 0;
-				info.down = 0;
-			}
-
-			out.infos.push(info);
-		}
-
-		return out;
-	}
-
-	unicast(topo, ts, from, to, bytes) {
-		return this.multicast(topo, ts, from, [ to ], bytes);
 	}
 
 	async renderActivations() {
