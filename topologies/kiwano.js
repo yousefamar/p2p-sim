@@ -13,8 +13,7 @@ module.exports = class Kiwano extends Topology {
 	}
 
 	recompute(world, sim) {
-		let activeStr = 'active' + this.hash;
-		world.edges().data(activeStr, false);
+		world.edges().data('active', false);
 
 		let peers = world.nodes().toArray();
 
@@ -30,7 +29,7 @@ module.exports = class Kiwano extends Topology {
 
 		// If there are only two, connect them
 		if (peers.length === 2) {
-			peers[0].edgesWith(peers[1]).data(activeStr, true);
+			peers[0].edgesWith(peers[1]).data('active', true);
 			return super.recompute(world, sim);
 		}
 
@@ -39,17 +38,17 @@ module.exports = class Kiwano extends Topology {
 			let a = peers[triangles[i]];
 			let b = peers[triangles[i + 1]];
 			let c = peers[triangles[i + 2]];
-			a.edgesWith(b).data(activeStr, true);
-			b.edgesWith(c).data(activeStr, true);
-			c.edgesWith(a).data(activeStr, true);
+			a.edgesWith(b).data('active', true);
+			b.edgesWith(c).data('active', true);
+			c.edgesWith(a).data('active', true);
 		}
 
-		let dist = world.elements('node, edge[?'+activeStr+']').floydWarshall().distance;
+		let dist = world.elements('node, edge[?'+'active'+']').floydWarshall().distance;
 
 		for (let i = 0; i < peers.length; ++i) {
 			for (let j = i + 1; j < peers.length; ++j) {
 				if (dist(peers[i], peers[j]) <= Kiwano.POWER)
-					peers[i].edgesWith(peers[j]).data(activeStr, true);
+					peers[i].edgesWith(peers[j]).data('active', true);
 			}
 		}
 

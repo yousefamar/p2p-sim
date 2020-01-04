@@ -2,7 +2,7 @@ const fs = require('fs');
 const EventEmitter = require('events');
 const split = require('split');
 
-module.exports = class MLTracePlayback extends EventEmitter {
+module.exports = class MLTraceEmitter extends EventEmitter {
 	static aoiRadius = 390;
 
 	nextMsg  = null;
@@ -123,20 +123,15 @@ module.exports = class MLTracePlayback extends EventEmitter {
 				break;
 			case 'PLAYER_SPAWN':
 			case 'PLAYER_DATA':
-				this.emit('spawn', (player = {
-					id: packet.data.data.rid,
-					x: packet.data.data.pos.x,
-					y: packet.data.data.pos.y,
-					ts: packet.ts
-				}));
+				this.emit('spawn', packet.ts, packet.data.data.rid, packet.bytes, MLTraceEmitter.aoiRadius, packet.data.data.pos.x, packet.data.data.pos.y);
 				//this.emit('broadcast', packet.ts, player.id, packet.bytes);
-				this.emit('aoicast', packet.ts, player.id, packet.bytes, MLTracePlayback.aoiRadius);
+				//this.emit('aoicast', packet.ts, player.id, packet.bytes, MLTraceEmitter.aoiRadius);
 				this.emit('time', +packet.ts);
 				break;
 			case 'PLAYER_DESPAWN':
 				//this.emit('broadcast', packet.ts, packet.data.data.rid, packet.bytes);
-				this.emit('aoicast', packet.ts, packet.data.data.rid, packet.bytes, MLTracePlayback.aoiRadius);
-				this.emit('despawn', packet.data.data.rid, packet.ts);
+				//this.emit('aoicast', packet.ts, packet.data.data.rid, packet.bytes, MLTraceEmitter.aoiRadius);
+				this.emit('despawn', packet.ts, packet.data.data.rid, packet.bytes, MLTraceEmitter.aoiRadius);
 				this.emit('time', +packet.ts);
 				break;
 
@@ -145,8 +140,8 @@ module.exports = class MLTracePlayback extends EventEmitter {
 				//////////////////////
 
 			case 'STAT':
-				this.emit('update', packet.data.rid, packet.data.pos.x, packet.data.pos.y, packet.ts)
-				this.emit('aoicast', packet.ts, packet.data.rid, packet.bytes, MLTracePlayback.aoiRadius);
+				this.emit('update', packet.ts, packet.data.rid, packet.bytes, MLTraceEmitter.aoiRadius, packet.data.pos.x, packet.data.pos.y);
+				//this.emit('aoicast', packet.ts, packet.data.rid, packet.bytes, MLTraceEmitter.aoiRadius);
 				this.emit('time', +packet.ts);
 				break;
 			case 'SPEECH':
@@ -168,7 +163,7 @@ module.exports = class MLTracePlayback extends EventEmitter {
 			case 'SPARKLE_LINE':
 			case 'CLEAR_LINES':
 			case 'BOOST_REJECTED':
-				this.emit('aoicast', packet.ts, packet.data.data.rid, packet.bytes, MLTracePlayback.aoiRadius);
+				this.emit('aoicast', packet.ts, packet.data.data.rid, packet.bytes, MLTraceEmitter.aoiRadius);
 				this.emit('time', +packet.ts);
 				break;
 

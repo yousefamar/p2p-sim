@@ -1,22 +1,101 @@
 const fs = require('fs');
-const cliProgress = require('cli-progress');
+const seedrandom = require('seedrandom');
 const Simulation = require('./simulation.js');
-const MLTracePlayback = require('./ml-trace-playback.js');
-require('seedrandom')('yousef', { global: true });
-
-const dir = '/home/amar/share/mlrecs/';
-const droneList = new Set(fs.readFileSync(dir + 'droneList.txt', { encoding: 'utf-8' }).trim().split('\n').map(l => l.split(' ')[1]));
-
-const progressBar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
-const startTS  = new Date(2019, 11 - 1, 11).getTime();
-const endTS    = new Date(2019, 11 - 1, 18).getTime();
-
 const topologies = require('./topologies.js');
+
+//const corruptionStream = fs.openSync(dir + 'corruption.csv', 'w');
+
+async function run({
+	workload,
+	topology,
+	aoiR = 390,
+	topoRecomputeInterval = 1000,
+	chanceOfEvil = 0.0,
+	maxHops = 3
+} = {}) {
+	if (workload == null)
+		throw 'Undefined workload';
+	if (topology == null)
+		throw 'Undefined topology';
+
+	const sim = new Simulation({ chanceOfEvil, aoiRadius: aoiR, maxHops: maxHops });
+
+	let nextTopoRecomputeTS = 0;
+	let recomputeTopology = (t, ts) => {
+		t.fw = t.recompute(sim.world, sim);
+		nextTopoRecomputeTS = ts + topoRecomputeInterval;
+		//sim.rewire();
+		t.preconnect(sim.world, sim);
+	};
+
+	await sim.init();
+
+	for await (const line of workload()) {
+		let [ event, ts, id, bytes, aoiRadius, ...args ] = line;
+		ts = +ts;
+		bytes = +bytes;
+		aoiRadius = +aoiRadius;
+
+		sim.broadcastTimestamp(ts);
+
+		let x, y, peer;
+
+		if (ts >= nextTopoRecomputeTS)
+			recomputeTopology(topology, ts);
+
+		switch (event) {
+
+			case 's': // Spawn
+			case 'u': // Update
+				[ x, y ] = args;
+				x = +x;
+				y = +y;
+				peer = sim.getPeer(id);
+				if (peer.length < 1) {
+					sim.spawn({ ts, id, x, y });
+					peer = sim.getPeer(id);
+					recomputeTopology(topology, ts);
+				} else {
+					sim.updatePos(peer, x, y);
+				}
+				sim.aoicast(peer, ts, id, bytes, aoiRadius, x, y);
+				break;
+
+			// Aoicast
+			case 'a':
+				peer = sim.getPeer(id);
+				if (peer.length < 1) {
+					//console.error('\nPlayer that never spawned aoicasted', id);
+				} else {
+					sim.aoicast(peer, ts, id, bytes, aoiRadius);
+				}
+				break;
+
+			// Despawn
+			case 'd':
+				peer = sim.getPeer(id);
+				if (peer.length < 1)
+					break;
+				sim.aoicast(peer, ts, id, bytes, aoiRadius);
+				sim.despawn(peer);
+				recomputeTopology(topology, ts);
+				break;
+
+			default:
+				throw 'Unknown event in trace: ' + event;
+		}
+	}
+	sim.end();
+}
+
+const aoiR = 390;
+const maxHops = 3;
+
 let topos = Object.entries({
 	'ClientServer': {},
 	'Complete': {},
 	// FIXME: AOI radius is hardcoded in here
-	'AOI': { aoiRadius: 390 },
+	'AOI': { aoiRadius: aoiR },
 	'Delaunay': {},
 	'Kiwano': {},
 	'Chord': {},
@@ -31,94 +110,38 @@ let topos = Object.entries({
 	return new topologies[t[1].cls || t[0]](t[1]);
 });
 
-const chanceOfEvil = 0.5;
-const sim    = new Simulation(chanceOfEvil);
-const router = require('./routers/instant.js').instance;
-let msgID = 0;
-
-const topoRecomputeInterval = 10000;
-let nextTopoRecomputeTS     = startTS + topoRecomputeInterval;
-let recomputeTopologies     = () => {
-	topos.forEach(t => {
-		t.fw = t.recompute(sim.world, sim);
-	});
-	nextTopoRecomputeTS += topoRecomputeInterval;
+let workloads = {
+	'trace-static':  require('./generators/trace-static.js'),
+	'trace-dynamic': require('./generators/trace-dynamic.js')
 };
 
-const corruptionStream = fs.openSync(dir + 'corruption.csv', 'w');
-
 (async () => {
-	progressBar.start(endTS - startTS, 0);
-
-	await sim.init();
-
-	for (let day = 11; day <= 17; ++day) {
-		let playback = new MLTracePlayback(dir + '2019-11-' + day + '-starbucks-msgs.mlrec', dir + '2019-11-' + day + '-starbucks-stat.mlrec');
-
-		playback
-			.once('time', ts => {
-				recomputeTopologies();
-			})
-			.on('time', ts => {
-				if (ts >= nextTopoRecomputeTS)
-					recomputeTopologies();
-
-				progressBar.update(ts - startTS);
-			})
-			.on('spawn', player => {
-				if (droneList.has(player.id))
-					return;
-				let peer = sim.getPeer(player.id);
-				if (peer.length > 0) {
-					//console.error('Player that already spawned spawned again', player.id);
-					sim.updatePos(peer, player.x, player.y);
-				} else {
-					sim.spawn(player);
-					recomputeTopologies();
-				}
-			})
-			.on('despawn', (id, ts) => {
-				if (droneList.has(id))
-					return;
-				let peer = sim.getPeer(id);
-				if (peer.length < 1) {
-					//console.error('Player that never spawned despawned', id);
-					return;
-				}
-				sim.despawn(peer);
-				recomputeTopologies();
-			})
-			.on('update', (id, x, y, ts) => {
-				if (droneList.has(id))
-					return;
-				let peer = sim.getPeer(id);
-				if (peer.length < 1) {
-					//console.error('Player that never spawned got update', id);
-					sim.spawn({ id, x, y });
-					recomputeTopologies();
-					return;
-				}
-				sim.updatePos(peer, x, y);
-				//fs.writeSync(mobilityStream, `${ts},${id},${x},${y}\n`);
-			})
-			.on('aoicast', (ts, id, bytes, aoiRadius) => {
-				let peer = sim.getPeer(id);
-				if (peer.length < 1) {
-					//console.error('\nPlayer that never spawned aoicasted', id);
-					return;
-				}
-				for (let t of topos) {
-					let out = router.aoicast(sim, t, ts, peer, bytes, aoiRadius);
-					let { bytesClean, bytesCorrupt } = out;
-					let bytesTotal = bytesCorrupt + bytesClean;
-					if (bytesTotal)
-						fs.writeSync(corruptionStream, `${ts},${bytesClean},${bytesCorrupt},${t.name}\n`);
-				}
-				++msgID;
-			});
-
-		playback.start();
-		await new Promise(resolve => playback.on('end', resolve));
+	for (const workload of Object.entries(workloads)) {
+		for (const topo of topos) {
+			topo.clearstate();
+			// Reseed PRNG for consistent results
+			seedrandom('yousef', { global: true });
+			console.log(`Playing back with parameters:
+	Workload:			${workload[0]}
+	AOI radius:			${aoiR}
+	Topology:			${topo.name}
+	Topology compute interval:	10000 ms
+	Max hops:			${maxHops}
+	Chance of evil:			0.5`);
+			try {
+				await run({
+					workload: workload[1],
+					topology: topo,
+					// TODO: Dynamic AOI?
+					aoiR: aoiR,
+					topoRecomputeInterval: 10000,
+					chanceOfEvil: 0.5,
+					maxHops: maxHops
+				});
+			} catch (e) {
+				console.error(e);
+				return;
+			}
+		}
 	}
-	progressBar.stop();
 })();

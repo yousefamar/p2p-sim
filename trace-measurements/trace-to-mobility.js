@@ -1,6 +1,6 @@
 const fs = require('fs');
 const cliProgress = require('cli-progress');
-const MLTracePlayback = require('../ml-trace-playback.js');
+const MLTraceEmitter = require('../ml-trace-emitter.js');
 
 const dir = '/home/amar/share/mlrecs/';
 const day = process.argv[2];
@@ -10,7 +10,7 @@ if (!day) {
 }
 const mobilityStream = fs.openSync(dir + '2019-11-' + day + '-starbucks-mobility.csv', 'w');
 
-const playback = new MLTracePlayback(dir + '2019-11-' + day + '-starbucks-msgs.mlrec', dir + '2019-11-' + day + '-starbucks-stat.mlrec');
+const playback = new MLTraceEmitter(dir + '2019-11-' + day + '-starbucks-msgs.mlrec', dir + '2019-11-' + day + '-starbucks-stat.mlrec');
 
 const droneList = new Set(fs.readFileSync(dir + 'droneList.txt', { encoding: 'utf-8' }).trim().split('\n').map(l => l.split(' ')[1]));
 

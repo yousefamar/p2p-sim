@@ -7,31 +7,30 @@ module.exports = class Ours extends Topology {
 	}
 
 	recompute(world, sim) {
-		let activeStr = 'active' + this.hash;
 		//let maxWeight = Math.max(...world.edges().map(e => e.data('weight')));
 		// Reset edges
-		world.edges().data(activeStr, false);
-		world.edges().data('redundant' + this.hash, false);
+		world.edges().data('active', false);
+		world.edges().data('redundant', false);
 		world.edges().removeData('modifiedWeight')
 
 		let mst = world.elements().kruskal(e => e.data().weight);
-		mst.edges().data(activeStr, true);
+		mst.edges().data('active', true);
 
-		world.nodes().forEach(n => n.data('activeEdgesCount', n.connectedEdges('[?'+activeStr+']').length));
+		world.nodes().forEach(n => n.data('activeEdgesCount', n.connectedEdges('[?'+'active'+']').length));
 
 		world.nodes().forEach(n => {
 			if (n.data('activeEdgesCount') >= this.minK)
 				return;
 
-			let inactive = n.connectedEdges('[!'+activeStr+']');
+			let inactive = n.connectedEdges('[!'+'active'+']');
 			inactive.forEach(e => {
 				if (e.source().data('activeEdgesCount') < this.minK && e.target().data('activeEdgesCount') < this.minK)
 					e.data('modifiedWeight', 0.5 * e.data('weight'));
 			});
 			inactive = inactive.sort((a, b) => (a.data('modifiedWeight') || a.data('weight')) - (b.data('modifiedWeight') || b.data('weight')));
 			inactive.forEach(e => {
-				e.data(activeStr, true);
-				e.data('redundant' + this.hash, true);
+				e.data('active', true);
+				e.data('redundant', true);
 				e.source().data().activeEdgesCount++;
 				e.target().data().activeEdgesCount++;
 				if (n.data('activeEdgesCount') >= this.minK)
@@ -40,5 +39,17 @@ module.exports = class Ours extends Topology {
 		});
 
 		return super.recompute(world, sim);
+	}
+
+	preconnect(world, sim) {
+		world.edges().data('connected', false);
+
+		world.nodes().forEach(n => {
+			n.neighborhood().edges()
+				.filter(edge => sim.inWideAOI(edge.source().position(), edge.target.position()))
+				.data('connected', true);
+		});
+
+		return super.preconnect(world, sim);
 	}
 };

@@ -15,21 +15,19 @@ module.exports = class Superpeers extends Topology {
 	}
 
 	recompute(world, sim) {
-		let activeStr = 'active' + this.hash;
-		let superStr  = 'super' + this.hash;
-		world.edges().data(activeStr, false);
-		world.nodes().data(superStr, false);
+		world.edges().data('active', false);
+		world.nodes().data('super', false);
 
 		let peers = world.nodes().toArray();
 
 		if (!this.shouldUseKmeans) {
 			let supers = peers.splice(0, this.superpeerCount);
-			supers.forEach(s => s.data(superStr, true));
-			world.nodes('[?'+superStr+']').edgesWith(world.nodes('[?'+superStr+']')).data(activeStr, true);
+			supers.forEach(s => s.data('super', true));
+			world.nodes('[?super]').edgesWith(world.nodes('[?super]')).data('active', true);
 			// Round-robin them across the supers
 			for (let i = 0; i < peers.length; ++i) {
 				let j = i % this.superpeerCount;
-				peers[i].edgesWith(supers[j]).data(activeStr, true);
+				peers[i].edgesWith(supers[j]).data('active', true);
 			}
 			return super.recompute(world, sim);
 		}
@@ -57,12 +55,12 @@ module.exports = class Superpeers extends Topology {
 			supers.push(peers.splice(closestPeerID, 1)[0]);
 		}
 
-		supers.forEach(s => s.data(superStr, true));
-		world.nodes('[?'+superStr+']').edgesWith(world.nodes('[?'+superStr+']')).data(activeStr, true);
+		supers.forEach(s => s.data('super', true));
+		world.nodes('[?super]').edgesWith(world.nodes('[?super]')).data('active', true);
 
 		peers = world.nodes().toArray();
 		for (let i = 0; i < res.idxs.length; ++i)
-			peers[i].edgesWith(supers[res.idxs[i]]).data(activeStr, true);
+			peers[i].edgesWith(supers[res.idxs[i]]).data('active', true);
 
 		return super.recompute(world, sim);
 	}
