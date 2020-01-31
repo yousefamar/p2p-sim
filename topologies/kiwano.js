@@ -13,6 +13,8 @@ module.exports = class Kiwano extends Topology {
 	}
 
 	recompute(world, sim) {
+		super.recompute(world, sim);
+
 		world.edges().data('active', false);
 
 		let peers = world.nodes().toArray();
@@ -30,7 +32,7 @@ module.exports = class Kiwano extends Topology {
 		// If there are only two, connect them
 		if (peers.length === 2) {
 			peers[0].edgesWith(peers[1]).data('active', true);
-			return super.recompute(world, sim);
+			super.recompute(world, sim);
 		}
 
 		let triangles = Delaunator.from(peers, Kiwano.getPeerX, Kiwano.getPeerY).triangles;
@@ -51,7 +53,5 @@ module.exports = class Kiwano extends Topology {
 					peers[i].edgesWith(peers[j]).data('active', true);
 			}
 		}
-
-		return super.recompute(world, sim);
 	}
 };

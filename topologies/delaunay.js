@@ -11,6 +11,8 @@ module.exports = class Delaunay extends Topology {
 	}
 
 	recompute(world, sim) {
+		super.recompute(world, sim);
+
 		world.edges().data('active', false);
 
 		let peers = world.nodes().toArray();
@@ -28,7 +30,7 @@ module.exports = class Delaunay extends Topology {
 		// If there are only two, connect them
 		if (peers.length === 2) {
 			peers[0].edgesWith(peers[1]).data('active', true);
-			return super.recompute(world, sim);
+			return;
 		}
 
 		let triangles = Delaunator.from(peers, Delaunay.getPeerX, Delaunay.getPeerY).triangles;
@@ -40,7 +42,5 @@ module.exports = class Delaunay extends Topology {
 			b.edgesWith(c).data('active', true);
 			c.edgesWith(a).data('active', true);
 		}
-
-		return super.recompute(world, sim);
 	}
 };

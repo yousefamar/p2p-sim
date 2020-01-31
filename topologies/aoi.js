@@ -13,6 +13,8 @@ module.exports = class AOI extends Topology {
 	}
 
 	recompute(world, sim) {
+		super.recompute(world, sim);
+
 		world.edges().data('active', false);
 
 		let peers = world.nodes().toArray();
@@ -23,7 +25,5 @@ module.exports = class AOI extends Topology {
 					peers[i].edgesWith(peers[j]).data('active', true);
 			}
 		}
-
-		return super.recompute(world, sim);
 	}
 };

@@ -1,3 +1,5 @@
+const EventEmitter = require('events');
+const assert = require('assert');
 const cytoscape = require('cytoscape');
 const euler     = require('cytoscape-euler');
 cytoscape.use(euler);
@@ -17,6 +19,7 @@ let dist = (a, b) => {
 };
 
 let postMessageNode = function(...args) {
+	args[0].pmIndex = this.scratch('_p2p-sim').pmIndex++;
 	this.scratch('_p2p-sim').worker.postMessage(...args);
 };
 let postMessageEdge = function(...args) {
@@ -35,13 +38,18 @@ let recomputeWeight = function() {
 	this.data('weight', 0.8 * this.data('lat') + 0.2 * distance);
 };
 
-class Simulation {
-	constructor({ chanceOfEvil = 0.0, aoiRadius = 390, maxHops = 3 } = {}) {
+class Simulation extends EventEmitter {
+	constructor({ lossRatio = 0.0, chanceOfEvil = 0.0, aoiRadius = 390, maxHops = 3, topology, topoRecomputeInterval } = {}) {
+		super();
 		this.nextMsgID = 0;
-		this.chanceOfEvil        = chanceOfEvil;
-		this.aoiRadius           = aoiRadius;
-		this.aoiRadiusWithBuffer = 2 * aoiRadius; // Assumes symmetric AOIs
-		this.maxHops             = maxHops;
+		this.chanceOfEvil          = chanceOfEvil;
+		this.lossRatio             = lossRatio;
+		this.aoiRadius             = aoiRadius;
+		this.aoiRadiusWithBuffer   = 2 * aoiRadius; // Assumes symmetric AOIs
+		this.maxHops               = maxHops;
+		this.topology              = topology;
+		this.topoRecomputeInterval = topoRecomputeInterval;
+		this.nextTopoRecomputeTS   = 0;
 		//this.metricWeights = [];
 		let network = this.network = new PLNetwork();
 		this.world = cytoscape()
@@ -61,16 +69,22 @@ class Simulation {
 			.on('position', event => {
 				let elem = event.target;
 				if (elem.group() === 'nodes')
-					elem.connectedEdges().forEach(e => e.scratch('_p2p-sim').recomputeWeight());
+					elem.connectedEdges().data('dirty', true);
 			});
+		this.world.scratch('_p2p-sim', {});
+		this.world.scratch('_p2p-sim').actualPeerCount = new Uint32Array(new SharedArrayBuffer(Uint32Array.BYTES_PER_ELEMENT));
 	}
 
 	async init() {
 		await this.network.init();
 	}
 
-	end() {
-		this.world.nodes().forEach(n => n.scratch('worker').postMessage({ event: 'exit' }));
+	exitPromises = [];
+	stats = [];
+
+	async end() {
+		this.world.nodes().forEach(n => n.scratch('_p2p-sim').postMessage({ event: 'exit' }));
+		await Promise.all(this.exitPromises);
 	}
 
 	getPeer(id) {
@@ -78,7 +92,7 @@ class Simulation {
 	}
 
 	spawn(player) {
-		player.ip = this.network.getIP();
+		player.ip  = this.network.getIP();
 		let isEvil = Math.random() < this.chanceOfEvil;
 		let netPos = this.network.cy.nodes(`[id = "${player.ip}"]`).position();
 		let peer = this.world.add({
@@ -97,17 +111,31 @@ class Simulation {
 				y: player.y || 0,
 			}
 		});
+		let gtPos  = new Float32Array(new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * 2));
+		gtPos[0]   = player.x || 0;
+		gtPos[1]   = player.x || 0;
+		peer.scratch('_p2p-sim').gtPos = gtPos;
+		peer.scratch('_p2p-sim').pmIndex = 0;
+		let actualPeerCount = this.world.scratch('_p2p-sim').actualPeerCount;
+		++actualPeerCount[0];
 		// TODO: Move this to add event listener
 		const worker = new Worker('./peer.js', {
-			workerData: { ...player, router: this.router }
+			workerData: { ...player, isEvil, lossRatio: this.lossRatio, topology: this.topology.constructor.name, gtPos, actualPeerCount }
 		});
-		worker.on('message', console.log);
+		//console.log('spawned', player);
+		worker.on('message', m => {
+			this.stats.push(m)
+			//worker.terminate();
+		});
 		worker.on('error', console.error);
+		this.exitPromises.push(new Promise(resolve => worker.on('exit', resolve)));
 		//peer.scratch('worker', worker);
 		//peer.scratch('wideAOI', new Set());
 		peer.scratch('_p2p-sim').worker = worker;
 		peer.scratch('_p2p-sim').postMessage({ event: 'supers', supers: this.latestSupers });
+		peer.scratch('_p2p-sim').postMessage({ event: 'peers', peers: this.world.nodes(`[ id != "${player.id}" ]`).map(n => ({ id: n.id(), gtPos: n.scratch('_p2p-sim').gtPos })) });
 		this.world.nodes(`[ id != "${player.id}"]`).forEach(other => {
+			other.scratch('_p2p-sim').postMessage({ event: 'peer', id: player.id, gtPos })
 			this.world.add({
 				data: {
 					id: player.id + '-' + other.id(),
@@ -130,6 +158,8 @@ class Simulation {
 
 	updatePos(peer, x, y) {
 		peer.position({ x, y });
+		peer.scratch('_p2p-sim').gtPos[0] = x;
+		peer.scratch('_p2p-sim').gtPos[1] = y;
 	}
 
 	aoicast(peer, ts, id, bytes, aoiRadius, x, y) {
@@ -141,7 +171,9 @@ class Simulation {
 			aoiRadius,
 			hops: 0,
 			maxHops: this.maxHops,
-			msgID: this.nextMsgID++
+			msgID: this.nextMsgID++,
+			corruptionCount: 0,
+			latency: 0
 		};
 		if (x && y) {
 			update.x = x;
@@ -164,9 +196,7 @@ class Simulation {
 		let dy = otherPos.y - peerPos.y;
 		if (Math.abs(dy) > this.aoiRadiusWithBuffer)
 			return false;
-		if (dist(peerPos, otherPos) > this.aoiRadiusWithBuffer)
-			return false;
-		return true;
+		return dist(peerPos, otherPos) <= this.aoiRadiusWithBuffer;
 	}
 
 	connectEdge(edge) {
@@ -177,8 +207,10 @@ class Simulation {
 		let target = edge.target();
 		let sourcePos = source.position();
 		let targetPos = target.position();
-		source.scratch('_p2p-sim').postMessage({ event: 'connect', id: target.id(), lat, active, x: targetPos.x, y: targetPos.y, port: port1 }, [port1]);
-		target.scratch('_p2p-sim').postMessage({ event: 'connect', id: source.id(), lat, active, x: targetPos.x, y: targetPos.y, port: port2 }, [port2]);
+		let sourceGTPos = source.scratch('_p2p-sim').gtPos;
+		let targetGTPos = source.scratch('_p2p-sim').gtPos;
+		source.scratch('_p2p-sim').postMessage({ event: 'connect', id: target.id(), lat, active, x: targetPos.x, y: targetPos.y, gtPos: targetGTPos, port: port1 }, [port1]);
+		target.scratch('_p2p-sim').postMessage({ event: 'connect', id: source.id(), lat, active, x: sourcePos.x, y: sourcePos.y, gtPos: sourceGTPos, port: port2 }, [port2]);
 	}
 
 	disconnectEdge(edge) {
@@ -210,6 +242,55 @@ class Simulation {
 		this.latestSupers = supers;
 		for (let peer of this.world.nodes().toArray())
 			peer.scratch('_p2p-sim').postMessage({ event: 'supers', supers });
+	}
+
+	rewire() {
+		assert(this.world.edges('[?active][!connected]').length < 1)
+
+		let currConnections = this.world.edges('[?connected]');
+		let prevConnections = this.world.edges('[?prevConnected]');
+		let d = prevConnections.diff(currConnections);
+		let deltaConnections    = d.right;
+		let deltaDisconnections = d.left;
+
+		assert(deltaConnections.intersection(deltaDisconnections).length < 1);
+
+		deltaConnections.forEach(edge => this.connectEdge(edge));
+		deltaDisconnections.forEach(edge => this.disconnectEdge(edge));
+
+
+		let currActivations = this.world.edges('[?active]');
+		let prevActivations = this.world.edges('[?prevActive]');
+		d = prevActivations.diff(currActivations);
+		let deltaActivations   = d.right;
+		let deltaDeactivations = d.left;
+
+		assert(deltaActivations.intersection(deltaDeactivations).length < 1);
+
+		deltaActivations.forEach(edge => this.activateEdge(edge));
+		deltaDeactivations.forEach(edge => this.deactivateEdge(edge));
+
+		if (this.world.data('supersChanged'))
+			this.broadcastSupers(this.world.nodes('[?super]').map(n => n.id()));
+	}
+
+	recomputeTopology(ts) {
+		this.world.edges('[?dirty]').forEach(e => e.scratch('_p2p-sim').recomputeWeight());
+		this.topology.recompute(this.world, this);
+		this.topology.preconnect(this.world, this);
+		this.rewire();
+		this.nextTopoRecomputeTS = ts + this.topoRecomputeInterval;
+
+		let maxDegree       = 0;
+		let maxActiveDegree = 0;
+		this.world.nodes().forEach(n => {
+			maxDegree       = Math.max(maxDegree,       n.neighborhood('edge[?connected]').length);
+			maxActiveDegree = Math.max(maxActiveDegree, n.neighborhood('edge[?active]').length);
+		});
+
+		let peerCount = this.world.nodes().length;
+		this.emit('maxDegree', peerCount, maxDegree);
+		this.emit('maxActiveDegree', peerCount, maxActiveDegree);
 	}
 
 	/*

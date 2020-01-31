@@ -15,10 +15,14 @@ module.exports = class Superpeers extends Topology {
 	}
 
 	recompute(world, sim) {
+		super.recompute(world, sim);
+
 		world.edges().data('active', false);
 		world.nodes().data('super', false);
 
 		let peers = world.nodes().toArray();
+		if (peers.length < 1)
+			return;
 
 		if (!this.shouldUseKmeans) {
 			let supers = peers.splice(0, this.superpeerCount);
@@ -29,7 +33,7 @@ module.exports = class Superpeers extends Topology {
 				let j = i % this.superpeerCount;
 				peers[i].edgesWith(supers[j]).data('active', true);
 			}
-			return super.recompute(world, sim);
+			return;
 		}
 
 		if (world.nodes().length !== this.lastLen || world.nodes('[!kMeansed' + this.superpeerCount + ']').nonempty()) {
@@ -61,7 +65,5 @@ module.exports = class Superpeers extends Topology {
 		peers = world.nodes().toArray();
 		for (let i = 0; i < res.idxs.length; ++i)
 			peers[i].edgesWith(supers[res.idxs[i]]).data('active', true);
-
-		return super.recompute(world, sim);
 	}
 };

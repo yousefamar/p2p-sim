@@ -5,7 +5,8 @@ const dir = '/home/amar/share/mlrecs/';
 const area = '3';
 
 const startTS  = new Date(2019, 11 - 1, 11).getTime();
-const endTS    = new Date(2019, 11 - 1, 18).getTime();
+const endTS    = startTS + 100000;
+//const endTS    = new Date(2019, 11 - 1, 18).getTime();
 
 module.exports = async function* () {
 	const traceStream = fs.createReadStream(dir + 'merged' + '-' + area + '.csv');
@@ -18,6 +19,11 @@ module.exports = async function* () {
 		let nlID;
 		while ((nlID = buffer.indexOf('\n')) >= 0) {
 			out = buffer.slice(0, nlID).split(',');
+			if (+out[1] > endTS) {
+				progressBar.stop();
+				console.log();
+				return;
+			}
 			yield out;
 			progressBar.update(out[1] - startTS);
 			buffer = buffer.slice(nlID + 1);

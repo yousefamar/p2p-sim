@@ -23,28 +23,16 @@ module.exports = class Topology {
 	}
 
 	recompute(world, sim) {
-		let currActivations = world.edges('[?active]');
-		let prevActivations = world.edges('[?prevActive]');
-		let d = prevActivations.diff(currActivations);
-		let deltaActivations   = d.right;
-		let deltaDeactivations = d.left;
-
-		deltaActivations.forEach(edge => sim.activateEdge(edge));
-		deltaDeactivations.forEach(edge => sim.deactivateEdge(edge));
-
 		world.edges().forEach(e => {
 			e.data('prevActive', e.data('active'));
 		});
 
-		let supersChanged = false;
+		world.data('supersChanged', false);
 		world.nodes().forEach(n => {
 			if (n.data('super') !== n.data('prevSuper'))
-				supersChanged = true;
+				world.data('supersChanged', true);
 			n.data('prevSuper', n.data('super'));
 		});
-
-		if (supersChanged)
-			sim.broadcastSupers(world.nodes('[?super]').map(n => n.id()));
 
 		//return world.elements('node, edge[?active]').floydWarshall();
 		//return world.elements('node, edge[?active]').floydWarshall({
@@ -53,19 +41,11 @@ module.exports = class Topology {
 	}
 
 	preconnect(world, sim) {
-		world.edges('[?active]').data('connected', true);
-
-		let currConnections = world.edges('[?connected]');
-		let prevConnections = world.edges('[?prevConnected]');
-		let d = prevConnections.diff(currConnections);
-		let deltaConnections    = d.right;
-		let deltaDisconnections = d.left;
-
-		deltaConnections.forEach(edge => sim.connectEdge(edge));
-		deltaDisconnections.forEach(edge => sim.disconnectEdge(edge));
-
 		world.edges().forEach(e => {
 			e.data('prevConnected', e.data('connected'));
 		});
+
+		world.edges().data('connected', false);
+		world.edges('[?active]').data('connected', true);
 	}
 };

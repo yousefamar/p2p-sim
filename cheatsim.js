@@ -1,36 +1,148 @@
 const fs = require('fs');
+const assert = require('assert');
 const seedrandom = require('seedrandom');
 const Simulation = require('./simulation.js');
 const topologies = require('./topologies.js');
 
-//const corruptionStream = fs.openSync(dir + 'corruption.csv', 'w');
+const dir = './share-out/data/';
+const maxDegreeStream = fs.openSync(dir + 'max-degree.csv', 'w');
+fs.writeSync(maxDegreeStream, `peerCount,maxDegree,topology,workload\n`);
+const maxActiveDegreeStream = fs.openSync(dir + 'max-active-degree.csv', 'w');
+fs.writeSync(maxActiveDegreeStream, `peerCount,maxActiveDegree,topology,workload\n`);
+
+const fileStreams = {};
+
+let checkStatsConsistency = stats => {
+	for (let stat of stats) {
+		assert(stat.updates.received.position + stat.updates.received.nonPosition === stat.updates.received.total)
+	}
+};
+
+let strToProp = (obj, str) => {
+	// TODO: Error checking
+	str = str.split('.');
+	while (str.length) {
+		obj = obj[str.shift()];
+	}
+	return obj;
+};
+
+let logSummary = (stats, prop) => {
+	if (!stats.length)
+		return;
+	let max  = -Infinity;
+	let min  = Infinity;
+	let sum  = 0;
+	let mean;
+
+	let props = stats.map(s => strToProp(s, prop));
+	props.forEach(p => {
+		max  = Math.max(p, max);
+		min  = Math.min(p, min);
+		sum += p;
+	});
+	mean = sum / props.length;
+
+	let tabs = '\t';
+	if (prop.length < 23)
+		tabs += '\t';
+
+	console.log(prop + tabs, 'min:', min, 'mean:', mean, 'max:', max, 'sum:', sum);
+};
+
+let zeroArrayUndefineds = a => {
+	for (let i = 0, len = a.length; i < len; ++i)
+		a[i] = a[i] || 0;
+};
+
+let saveTable = (stats, prop, topology, workload) => {
+	if (!(prop in fileStreams)) {
+		fileStreams[prop] = fs.openSync(dir + 'stats/' + prop + '.csv', 'w');
+		fs.writeSync(fileStreams[prop], `sample,topology,workload\n`);
+	}
+	let fileStream = fileStreams[prop];
+	let props = stats.map(s => strToProp(s, prop));
+	props.forEach(p => {
+		fs.writeSync(fileStream, `${p},${topology.name},${workload[0]}\n`);
+	});
+};
+
+let saveDistribution = (stats, prop, topology, workload) => {
+	if (!(prop in fileStreams)) {
+		fileStreams[prop] = fs.openSync(dir + 'stats/' + prop + '.csv', 'w');
+		fs.writeSync(fileStreams[prop], `sample,topology,workload\n`);
+	}
+	let fileStream = fileStreams[prop];
+	let props = stats.map(s => strToProp(s, prop));
+	props.forEach(p => {
+		fs.writeSync(fileStream, `${p},${topology.name},${workload[0]}\n`);
+	});
+};
+
+let saveLineplot = (stats, prop, topology, workload, variableName='playerCount', variable) => {
+	let filename = prop + '-' + variableName;
+	if (!(filename in fileStreams)) {
+		fileStreams[filename] = fs.openSync(dir + 'stats/' + filename + '.csv', 'w');
+		fs.writeSync(fileStreams[filename], `sample,variable,topology,workload\n`);
+	}
+	let fileStream = fileStreams[filename];
+	let props = stats.map(s => strToProp(s, prop));
+	props.forEach(p => {
+		if (variableName === 'playerCount') {
+			for (let i = 0, len = p.length; i < len; ++i)
+				fs.writeSync(fileStream, `${p[i] || 0},${i},${topology.name},${workload[0]}\n`);
+		} else {
+			fs.writeSync(fileStream, `${p},${variable},${topology.name},${workload[0]}\n`);
+		}
+	});
+};
 
 async function run({
 	workload,
 	topology,
 	aoiR = 390,
 	topoRecomputeInterval = 1000,
+	maxHops = 3,
+	lossRatio = 0.0,
 	chanceOfEvil = 0.0,
-	maxHops = 3
+	mode = 'plain',
+	churn
 } = {}) {
 	if (workload == null)
 		throw 'Undefined workload';
 	if (topology == null)
 		throw 'Undefined topology';
 
-	const sim = new Simulation({ chanceOfEvil, aoiRadius: aoiR, maxHops: maxHops });
+	const sim = new Simulation({
+		lossRatio,
+		chanceOfEvil,
+		aoiRadius: aoiR,
+		maxHops,
+		topology,
+		topoRecomputeInterval
+	});
 
-	let nextTopoRecomputeTS = 0;
-	let recomputeTopology = (t, ts) => {
-		t.fw = t.recompute(sim.world, sim);
-		nextTopoRecomputeTS = ts + topoRecomputeInterval;
-		//sim.rewire();
-		t.preconnect(sim.world, sim);
-	};
+	sim.on('maxDegree', (peerCount, maxDegree) => {
+		fs.writeSync(maxDegreeStream, `${peerCount},${maxDegree},${topology.name},${workload[0]}\n`);
+	}).on('maxActiveDegree', (peerCount, maxActiveDegree) => {
+		fs.writeSync(maxActiveDegreeStream, `${peerCount},${maxActiveDegree},${topology.name},${workload[0]}\n`);
+	});
 
 	await sim.init();
 
-	for await (const line of workload()) {
+	let args;
+
+	if (mode === 'churn') {
+		// Range between 1m and 1h
+		let interval = (churn * ((1 * 60 * 60 * 1000) - 60000)) + 60000;
+		args = {
+			spawnIntervalMS: interval,
+			despawnIntervalMS: interval,
+			startCount: 15
+		};
+	}
+
+	for await (const line of workload[1](args)) {
 		let [ event, ts, id, bytes, aoiRadius, ...args ] = line;
 		ts = +ts;
 		bytes = +bytes;
@@ -40,11 +152,10 @@ async function run({
 
 		let x, y, peer;
 
-		if (ts >= nextTopoRecomputeTS)
-			recomputeTopology(topology, ts);
+		if (ts >= sim.nextTopoRecomputeTS)
+			sim.recomputeTopology(topology, ts);
 
 		switch (event) {
-
 			case 's': // Spawn
 			case 'u': // Update
 				[ x, y ] = args;
@@ -54,7 +165,7 @@ async function run({
 				if (peer.length < 1) {
 					sim.spawn({ ts, id, x, y });
 					peer = sim.getPeer(id);
-					recomputeTopology(topology, ts);
+					sim.recomputeTopology(topology, ts);
 				} else {
 					sim.updatePos(peer, x, y);
 				}
@@ -78,18 +189,83 @@ async function run({
 					break;
 				sim.aoicast(peer, ts, id, bytes, aoiRadius);
 				sim.despawn(peer);
-				recomputeTopology(topology, ts);
+				sim.recomputeTopology(topology, ts);
 				break;
 
 			default:
 				throw 'Unknown event in trace: ' + event;
 		}
 	}
-	sim.end();
+	await sim.end();
+
+/*
+	logSummary(sim.stats, 'updates.emitted.total');
+	logSummary(sim.stats, 'updates.emitted.position');
+	logSummary(sim.stats, 'updates.received.total');
+	logSummary(sim.stats, 'updates.received.bytes');
+	logSummary(sim.stats, 'updates.received.position');
+*/
+
+	checkStatsConsistency(sim.stats);
+
+	switch (mode) {
+		case 'plain':
+			saveDistribution(sim.stats, 'meanUpload', topology, workload);
+			saveDistribution(sim.stats, 'meanDownload', topology, workload);
+
+			saveDistribution(sim.stats, 'meanMissingRatio', topology, workload);
+			saveDistribution(sim.stats, 'meanExtraRatio', topology, workload);
+
+			saveDistribution(sim.stats, 'meanMeanDrift', topology, workload);
+
+			// churn ones (no churn)
+			saveDistribution(sim.stats, 'updates.sent.total', topology, workload);
+			saveDistribution(sim.stats, 'updates.dropped.dueToCooldown', topology, workload);
+			saveDistribution(sim.stats, 'updates.dropped.dueToLoss', topology, workload);
+			saveDistribution(sim.stats, 'updates.attemptedToSend', topology, workload);
+
+			if (workload[0] === 'synth-rwp') {
+				saveLineplot(sim.stats, 'meanMeanDrifts', topology, workload);
+				saveLineplot(sim.stats, 'meanUploads', topology, workload);
+				saveLineplot(sim.stats, 'meanDownloads', topology, workload);
+			}
+			break;
+
+		case 'churn':
+			saveLineplot(sim.stats, 'updates.sent.total', topology, workload, 'churn', churn);
+			saveLineplot(sim.stats, 'updates.dropped.dueToCooldown', topology, workload, 'churn', churn);
+			saveLineplot(sim.stats, 'updates.dropped.dueToLoss', topology, workload, 'churn', churn);
+			saveLineplot(sim.stats, 'updates.attemptedToSend', topology, workload, 'churn', churn);
+			break;
+
+		case 'loss':
+			saveLineplot(sim.stats, 'meanMeanDrift', topology, workload, 'lossRatio', lossRatio);
+			break;
+
+		case 'evil':
+			saveLineplot(sim.stats, 'updates.ignored.corrupt', topology, workload, 'chanceOfEvil', chanceOfEvil);
+			saveLineplot(sim.stats, 'updates.accepted.corrupt', topology, workload, 'chanceOfEvil', chanceOfEvil);
+			saveLineplot(sim.stats, 'updates.accepted.corruptMag', topology, workload, 'chanceOfEvil', chanceOfEvil);
+			break;
+
+		default:
+			break;
+	}
+
+	logSummary(sim.stats, 'updates.sent.total');
+	logSummary(sim.stats, 'updates.sent.bytes');
+	logSummary(sim.stats, 'updates.dropped.dueToDespawn');
+	logSummary(sim.stats, 'updates.dropped.dueToUnknownRoot');
+	logSummary(sim.stats, 'updates.received.total');
+	logSummary(sim.stats, 'updates.received.bytes');
+	logSummary(sim.stats, 'meanMeanDrift');
+	logSummary(sim.stats, 'logCount');
+	logSummary(sim.stats, 'activationQueueSize');
+	console.log('_______________________________________________________________________________\n');
 }
 
-const aoiR = 390;
-const maxHops = 3;
+const aoiR         = 390;
+const maxHops      = 3;
 
 let topos = Object.entries({
 	'ClientServer': {},
@@ -112,13 +288,18 @@ let topos = Object.entries({
 
 let workloads = {
 	'trace-static':  require('./generators/trace-static.js'),
-	'trace-dynamic': require('./generators/trace-dynamic.js')
+	'trace-dynamic': require('./generators/trace-dynamic.js'),
+	'synth-rwp': require('./generators/synth-rwp.js')
 };
+
 
 (async () => {
 	for (const workload of Object.entries(workloads)) {
 		for (const topo of topos) {
-			topo.clearstate();
+			let lossRatio    = 0.0;
+			let chanceOfEvil = 0.0;
+
+			topo.clearstate(); // TODO: No longer neccessary
 			// Reseed PRNG for consistent results
 			seedrandom('yousef', { global: true });
 			console.log(`Playing back with parameters:
@@ -127,20 +308,116 @@ let workloads = {
 	Topology:			${topo.name}
 	Topology compute interval:	10000 ms
 	Max hops:			${maxHops}
-	Chance of evil:			0.5`);
+	Loss ratio:			${lossRatio}
+	Chance of evil:			${chanceOfEvil}`);
 			try {
 				await run({
-					workload: workload[1],
+					workload: workload,
 					topology: topo,
 					// TODO: Dynamic AOI?
 					aoiR: aoiR,
 					topoRecomputeInterval: 10000,
-					chanceOfEvil: 0.5,
-					maxHops: maxHops
+					maxHops: maxHops,
+					lossRatio: lossRatio,
+					chanceOfEvil: chanceOfEvil,
+					mode: 'plain'
 				});
 			} catch (e) {
 				console.error(e);
 				return;
+			}
+
+			for (chanceOfEvil = 0.0; chanceOfEvil <= 1.0; chanceOfEvil += 0.1) {
+				topo.clearstate(); // TODO: No longer neccessary
+				// Reseed PRNG for consistent results
+				seedrandom('yousef', { global: true });
+				console.log(`Playing back with parameters:
+	Workload:			${workload[0]}
+	AOI radius:			${aoiR}
+	Topology:			${topo.name}
+	Topology compute interval:	10000 ms
+	Max hops:			${maxHops}
+	Loss ratio:			${lossRatio}
+	Chance of evil:			${chanceOfEvil}`);
+				try {
+					await run({
+						workload: workload,
+						topology: topo,
+						// TODO: Dynamic AOI?
+						aoiR: aoiR,
+						topoRecomputeInterval: 10000,
+						maxHops: maxHops,
+						lossRatio: lossRatio,
+						chanceOfEvil: chanceOfEvil,
+						mode: 'evil'
+					});
+				} catch (e) {
+					console.error(e);
+					return;
+				}
+			}
+			chanceOfEvil = 0.0;
+			for (lossRatio = 0.0; lossRatio <= 1.0; lossRatio += 0.1) {
+				topo.clearstate(); // TODO: No longer neccessary
+				// Reseed PRNG for consistent results
+				seedrandom('yousef', { global: true });
+				console.log(`Playing back with parameters:
+	Workload:			${workload[0]}
+	AOI radius:			${aoiR}
+	Topology:			${topo.name}
+	Topology compute interval:	10000 ms
+	Max hops:			${maxHops}
+	Loss ratio:			${lossRatio}
+	Chance of evil:			${chanceOfEvil}`);
+				try {
+					await run({
+						workload: workload,
+						topology: topo,
+						// TODO: Dynamic AOI?
+						aoiR: aoiR,
+						topoRecomputeInterval: 10000,
+						maxHops: maxHops,
+						lossRatio: lossRatio,
+						chanceOfEvil: chanceOfEvil,
+						mode: 'loss'
+					});
+				} catch (e) {
+					console.error(e);
+					return;
+				}
+			}
+			if (workload[0] === 'synth-rwp') {
+				for (let churn = 0.0; churn <= 1.0; churn += 0.1) {
+					topo.clearstate(); // TODO: No longer neccessary
+					// Reseed PRNG for consistent results
+					seedrandom('yousef', { global: true });
+					console.log(`Playing back with parameters:
+	Workload:			${workload[0]}
+	AOI radius:			${aoiR}
+	Topology:			${topo.name}
+	Topology compute interval:	10000 ms
+	Max hops:			${maxHops}
+	Loss ratio:			${lossRatio}
+	Chance of evil:			${chanceOfEvil}
+	Churn:				${churn}`);
+					try {
+						await run({
+							workload: workload,
+							topology: topo,
+							// TODO: Dynamic AOI?
+							aoiR: aoiR,
+							topoRecomputeInterval: 10000,
+							maxHops: maxHops,
+							lossRatio: lossRatio,
+							chanceOfEvil: chanceOfEvil,
+							mode: 'churn',
+							churn: churn
+						});
+					} catch (e) {
+						console.error(e);
+						return;
+					}
+				}
 			}
 		}
 	}

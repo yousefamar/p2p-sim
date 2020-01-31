@@ -6,7 +6,7 @@ if (!isMainThread)
 	throw "Controller must run in main thread"
 
 let peers = [];
-let peerCount = 100;
+let peerCount = 10;
 
 for (let i = 0; i < peerCount; ++i) {
 	const worker = new Worker('./peer.js', {
@@ -32,8 +32,11 @@ for (let i = 0; i < peerCount; ++i) {
 }
 
 let start = Date.now();
-for (let peer of peers)
-	peer.postMessage({ event: 'echo', text: ':)' });
+let update = { event: 'echo', text: 0 };
+for (let peer of peers) {
+	peer.postMessage(update);
+	++update.text;
+}
 let end = Date.now();
 
 console.log(end - start);

@@ -7,6 +7,8 @@ module.exports = class Ours extends Topology {
 	}
 
 	recompute(world, sim) {
+		super.recompute(world, sim);
+
 		//let maxWeight = Math.max(...world.edges().map(e => e.data('weight')));
 		// Reset edges
 		world.edges().data('active', false);
@@ -16,13 +18,13 @@ module.exports = class Ours extends Topology {
 		let mst = world.elements().kruskal(e => e.data().weight);
 		mst.edges().data('active', true);
 
-		world.nodes().forEach(n => n.data('activeEdgesCount', n.connectedEdges('[?'+'active'+']').length));
+		world.nodes().forEach(n => n.data('activeEdgesCount', n.connectedEdges('[?active]').length));
 
 		world.nodes().forEach(n => {
 			if (n.data('activeEdgesCount') >= this.minK)
 				return;
 
-			let inactive = n.connectedEdges('[!'+'active'+']');
+			let inactive = n.connectedEdges('[!active]');
 			inactive.forEach(e => {
 				if (e.source().data('activeEdgesCount') < this.minK && e.target().data('activeEdgesCount') < this.minK)
 					e.data('modifiedWeight', 0.5 * e.data('weight'));
@@ -37,19 +39,15 @@ module.exports = class Ours extends Topology {
 					return false;
 			});
 		});
-
-		return super.recompute(world, sim);
 	}
 
 	preconnect(world, sim) {
-		world.edges().data('connected', false);
+		super.preconnect(world, sim);
 
 		world.nodes().forEach(n => {
-			n.neighborhood().edges()
-				.filter(edge => sim.inWideAOI(edge.source().position(), edge.target.position()))
+			n.connectedEdges()
+				.filter(edge => sim.inWideAOI(edge.source().position(), edge.target().position()))
 				.data('connected', true);
 		});
-
-		return super.preconnect(world, sim);
 	}
 };
