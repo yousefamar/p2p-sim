@@ -6,9 +6,9 @@ const topologies = require('./topologies.js');
 
 const dir = './share-out/data/';
 const maxDegreeStream = fs.openSync(dir + 'max-degree.csv', 'w');
-fs.writeSync(maxDegreeStream, `peerCount,maxDegree,topology,workload\n`);
+fs.writeSync(maxDegreeStream, `variable,sample,topology,workload\n`);
 const maxActiveDegreeStream = fs.openSync(dir + 'max-active-degree.csv', 'w');
-fs.writeSync(maxActiveDegreeStream, `peerCount,maxActiveDegree,topology,workload\n`);
+fs.writeSync(maxActiveDegreeStream, `variable,sample,topology,workload\n`);
 
 const fileStreams = {};
 
@@ -134,11 +134,11 @@ async function run({
 
 	if (mode === 'churn') {
 		// Range between 1m and 1h
-		let interval = (churn * ((1 * 60 * 60 * 1000) - 60000)) + 60000;
+		let interval = (churn * ((1 * 60 * 60 * 1000) - 20 * 60 * 1000)) + 20 * 60 * 1000;
 		args = {
 			spawnIntervalMS: interval,
 			despawnIntervalMS: interval,
-			startCount: 15
+			startCount: 10
 		};
 	}
 
@@ -287,9 +287,9 @@ let topos = Object.entries({
 });
 
 let workloads = {
+	'synth-rwp': require('./generators/synth-rwp.js'),
 	'trace-static':  require('./generators/trace-static.js'),
-	'trace-dynamic': require('./generators/trace-dynamic.js'),
-	'synth-rwp': require('./generators/synth-rwp.js')
+	'trace-dynamic': require('./generators/trace-dynamic.js')
 };
 
 
@@ -327,7 +327,43 @@ let workloads = {
 				return;
 			}
 
+			if (workload[0] === 'synth-rwp') {
+				for (let churn = 0.0; churn <= 1.0; churn += 0.1) {
+					churn = parseFloat(churn.toFixed(1));
+					topo.clearstate(); // TODO: No longer neccessary
+					// Reseed PRNG for consistent results
+					seedrandom('yousef', { global: true });
+					console.log(`Playing back with parameters:
+	Workload:			${workload[0]}
+	AOI radius:			${aoiR}
+	Topology:			${topo.name}
+	Topology compute interval:	10000 ms
+	Max hops:			${maxHops}
+	Loss ratio:			${lossRatio}
+	Chance of evil:			${chanceOfEvil}
+	Churn:				${churn}`);
+					try {
+						await run({
+							workload: workload,
+							topology: topo,
+							// TODO: Dynamic AOI?
+							aoiR: aoiR,
+							topoRecomputeInterval: 10000,
+							maxHops: maxHops,
+							lossRatio: lossRatio,
+							chanceOfEvil: chanceOfEvil,
+							mode: 'churn',
+							churn: churn
+						});
+					} catch (e) {
+						console.error(e);
+						return;
+					}
+				}
+			}
+
 			for (chanceOfEvil = 0.0; chanceOfEvil <= 1.0; chanceOfEvil += 0.1) {
+				chanceOfEvil = parseFloat(chanceOfEvil.toFixed(1));
 				topo.clearstate(); // TODO: No longer neccessary
 				// Reseed PRNG for consistent results
 				seedrandom('yousef', { global: true });
@@ -358,6 +394,7 @@ let workloads = {
 			}
 			chanceOfEvil = 0.0;
 			for (lossRatio = 0.0; lossRatio <= 1.0; lossRatio += 0.1) {
+				lossRatio = parseFloat(lossRatio.toFixed(1));
 				topo.clearstate(); // TODO: No longer neccessary
 				// Reseed PRNG for consistent results
 				seedrandom('yousef', { global: true });
@@ -384,39 +421,6 @@ let workloads = {
 				} catch (e) {
 					console.error(e);
 					return;
-				}
-			}
-			if (workload[0] === 'synth-rwp') {
-				for (let churn = 0.0; churn <= 1.0; churn += 0.1) {
-					topo.clearstate(); // TODO: No longer neccessary
-					// Reseed PRNG for consistent results
-					seedrandom('yousef', { global: true });
-					console.log(`Playing back with parameters:
-	Workload:			${workload[0]}
-	AOI radius:			${aoiR}
-	Topology:			${topo.name}
-	Topology compute interval:	10000 ms
-	Max hops:			${maxHops}
-	Loss ratio:			${lossRatio}
-	Chance of evil:			${chanceOfEvil}
-	Churn:				${churn}`);
-					try {
-						await run({
-							workload: workload,
-							topology: topo,
-							// TODO: Dynamic AOI?
-							aoiR: aoiR,
-							topoRecomputeInterval: 10000,
-							maxHops: maxHops,
-							lossRatio: lossRatio,
-							chanceOfEvil: chanceOfEvil,
-							mode: 'churn',
-							churn: churn
-						});
-					} catch (e) {
-						console.error(e);
-						return;
-					}
 				}
 			}
 		}
