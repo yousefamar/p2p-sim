@@ -58,19 +58,33 @@ function upsertPlayer(id, ts, x, y) {
 	players[player.id] = player;
 }
 
-function removePlayer(playerID) {
+function removePlayer(playerID, ts, isZombie) {
+	if (!(playerID in players))
+		return;
+	let dTS = ts - players[playerID].ts;
+	if (dTS >= Player.idleTimeMS && !isZombie)
+		idleTimes[playerID] += dTS - Player.idleTimeMS;
 	for (let id in players)
 		delete players[id].aoiSet[playerID];
 	delete players[playerID];
 }
 
 const dir = '/home/amar/share/mlrecs/';
-const area = 'starbucks';
+const area = process.argv[2];
+if (!area) {
+	console.error('Missing area argument');
+	process.exit(1);
+}
 const aoiR = 390 / 3;
+
 const progressBar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
 let startTS  = new Date(2019, 11 - 1, 11).getTime();
 let endTS    = new Date(2019, 11 - 1, 18).getTime();
 let progress = 0;
+
+let sampleIntervalMS = 10 * 60 * 1000; // 10 minutes
+let nextSampleTS     = startTS + sampleIntervalMS;
+let oneHourMS        = 60 * 60 * 1000;
 
 let players   = {};
 let idleTimes = {};
@@ -90,8 +104,8 @@ let groupCountStream = fs.openSync(dir + area + '-group-count.csv', 'w');
 let groupHistStream  = fs.openSync(dir + area + '-group-hist.csv', 'w');
 let idleTimesStream  = fs.openSync(dir + area + '-idle-times.csv', 'w');
 
-let lastTS = 0;
-let clash  = 0;
+const sum = a => a.reduce((agg, curr) => agg + curr, 0);
+
 (async () => {
 	progressBar.start(endTS - startTS, progress);
 	for (let day = 11; day <= 17; ++day) {
@@ -102,42 +116,43 @@ let clash  = 0;
 			let [ ts, id, x, y ] = line.split(',');
 			ts = +ts;
 
-			if (x == null) {
-				removePlayer(id);
-				continue;
+			let playersArray = Object.values(players);
+
+			while (nextSampleTS < ts) {
+				for (let p of playersArray)
+					p.visited = false;
+
+				let groupSizes = [];
+
+				for (let p of playersArray) {
+					if (!p.isIdle || p.visited)
+						continue;
+					let gs = visit(p);
+					groupSizes.push(gs);
+					hist[gs] = hist[gs] || 0;
+					++hist[gs];
+				}
+
+				fs.writeSync(groupCountStream, `${nextSampleTS},${sum(groupSizes)},${groupSizes.length}\n`);
+				nextSampleTS += sampleIntervalMS;
 			}
-			x = +x;
-			y = -y;
-			upsertPlayer(id, ts, x, y);
+
+			if (x == null) {
+				removePlayer(id, ts);
+			} else {
+				x = +x;
+				y = -y;
+				upsertPlayer(id, ts, x, y);
+			}
+
+			// Despawn zombie players
+			for (let id in players)
+				if (players[id].ts + oneHourMS < ts)
+					removePlayer(id, ts, true);
 
 			let idleTimeMSAgo = ts - Player.idleTimeMS;
-			for (let p of Object.values(players))
+			for (let p of playersArray)
 				p.isIdle = p.ts >= idleTimeMSAgo;
-
-			if (ts < lastTS)
-				throw 'Hell has frozen over';
-			else if (ts == lastTS)
-				++clash;
-			else
-				clash = 0;
-			lastTS = ts;
-
-			for (let id in players)
-				players[id].visited = false;
-
-			let groupSizes = [];
-
-			for (let id in players) {
-				let p = players[id];
-				if (!p.isIdle || p.visited)
-					continue;
-				let gs = visit(p);
-				groupSizes.push(gs);
-				hist[gs] = hist[gs] || 0;
-				++hist[gs];
-			}
-
-			fs.writeSync(groupCountStream, `${ts},${groupSizes.length}\n`);
 
 			progress = ts - startTS;
 			progressBar.update(progress);
