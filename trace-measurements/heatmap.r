@@ -1,59 +1,58 @@
 library(ggplot2)
 library(extrafont)
-#library(tidyr)
-#library(dplyr, warn.conflicts = FALSE)
+loadfonts()
 
-exit <- function() {
-	.Internal(.invokeRestart(list(NULL, NULL), NULL))
+genHeatmap = function(area, tileSize) {
+	heatmap = read.csv(paste('~/share/mlrecs/', area, '-heatmap.csv', sep = ''), header = FALSE)
+	colnames(heatmap) = c('x', 'y', 'h')
+	#xx <- seq(min(heatmap$x), max(heatmap$x), by=1)
+	#yy <- seq(min(heatmap$y), max(heatmap$y), by=1)
+	#heatmap <- merge(heatmap, xx, by.x='date', by.y='date', all.x=T, all.y=T)
+	#heatmap <- merge(heatmap, yy, by.x='date', by.y='date', all.x=T, all.y=T)
+	#heatmap$h[is.na(res$value)] <- 0
+	#heatmap = complete(heatmap, x, y, fill = list(h = 0))
+
+	cap = quantile(heatmap$h, 0.995)
+	print(cap)
+	print(max(heatmap$h))
+	heatmap$h[heatmap$h > cap] = cap
+
+	if (tileSize != 1) {
+		heatmap['x'] = floor(heatmap['x'] / tileSize) * tileSize
+		heatmap['y'] = floor(heatmap['y'] / tileSize) * tileSize
+		heatmap = aggregate(h ~ x + y, data = heatmap, sum)
+	}
+
+	heatmap$h = heatmap$h / max(heatmap$h)
+	heatmap$h = 1 - exp(-5 * heatmap$h)
+	print(summary(heatmap$h))
+
+	p = ggplot(heatmap, aes(x = x, y = y, fill = h))
+
+	if (tileSize == 1)
+		p = p + geom_raster()
+	else
+		p = p + geom_tile(width = tileSize, height = tileSize)
+
+	p = p +
+		coord_fixed(ratio = 1) +
+		scale_fill_viridis_c(option = "C") +
+		theme_bw(base_size=14) +
+		labs(fill = "Occupancy") +
+		theme(
+			axis.text        = element_text(size = 28, family='CM Roman'),
+			axis.title       = element_text(size = 30, family='CM Roman'),
+			legend.text      = element_text(size = 16, family='CM Roman'),
+			legend.title     = element_text(size = 18, family='CM Roman'),
+			legend.position  = c(if (area == 3) 0.89 else 0.85, 0.85)
+		)
+
+	filename = paste('./', area, '-heatmap-', tileSize, '.pdf', sep = '')
+
+	ggsave(filename, width = if (area == '3') 8 else 7)
+	embed_fonts(filename)
 }
 
-heatmap = read.csv('~/share/mlrecs/3-heatmap.csv')
-colnames(heatmap) = c('x', 'y', 'h')
-#xx <- seq(min(heatmap$x), max(heatmap$x), by=1)
-#yy <- seq(min(heatmap$y), max(heatmap$y), by=1)
-#heatmap <- merge(heatmap, xx, by.x='date', by.y='date', all.x=T, all.y=T)
-#heatmap <- merge(heatmap, yy, by.x='date', by.y='date', all.x=T, all.y=T)
-#heatmap$h[is.na(res$value)] <- 0
-#heatmap = complete(heatmap, x, y, fill = list(h = 0))
-
-cap = quantile(heatmap$h, 0.995)
-summary(heatmap$h)
-print(cap)
-print(max(heatmap$h))
-heatmap$h[heatmap$h > cap] = cap
-
-#heatmap['x'] = floor(heatmap['x'] / 10) * 10
-#heatmap['y'] = floor(heatmap['y'] / 10) * 10
-#heatmap = aggregate(h ~ x + y, data = heatmap, sum)
-
-heatmap$h = heatmap$h / max(heatmap$h)
-heatmap$h = 1 - exp(-5 * heatmap$h)
-summary(heatmap$h)
-
-#
-# Position heatmap
-#
-
-ggplot(heatmap, aes(x = x, y = y, fill = h)) +
-	geom_raster() +
-	#geom_tile(width = 10, height = 10) +
-	#stat_density_2d(aes(fill = ..level..), geom = "polygon")
-	#geom_bin2d(bins = 1000) +
-	scale_fill_viridis_c(option = "C") +
-	theme_bw(base_size=14) +
-	labs(fill = "Occupancy") +
-	theme(
-		#panel.grid.major = element_line(colour = "white"),
-		#panel.grid.minor = element_line(colour = "white"),
-		axis.text        = element_text(size = 28),
-		#axis.text.x     = element_text(angle = 90, hjust = 1, vjust = 0.5),
-		#axis.title      = element_text(size = 20, face="bold")
-		axis.title       = element_text(size = 30),
-		legend.text      = element_text(size = 20),
-		legend.title     = element_text(size = 28),
-		legend.position  = c(0.9, 0.8)
-		#panel.background = element_rect(fill="grey90", colour="grey90")
-	)
-
-ggsave('./3-heatmap-1.pdf', width = 14)
-embed_fonts('./3-heatmap-1.pdf')
+for (area in c('starbucks', '3'))
+	for (tileSize in c(1, 10))
+		genHeatmap(area, tileSize)

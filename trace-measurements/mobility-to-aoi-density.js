@@ -2,7 +2,7 @@ const fs = require('fs');
 const readline = require('readline');
 const cliProgress = require('cli-progress');
 
-const dir = '/home/amar/share/mlrecs/';
+const dir  = '/home/amar/share/mlrecs/';
 const area = process.argv[2];
 if (!area) {
 	console.error('Missing area argument');
@@ -13,14 +13,26 @@ let startTS  = new Date(2019, 11 - 1, 11).getTime();
 let endTS    = new Date(2019, 11 - 1, 18).getTime();
 let lastTS   = startTS;
 let progress = 0;
-let oneHourMS = 60 * 60 * 1000;
 
 let players = {};
-let heat    = [];
-let minX    = Infinity;
-let maxX    = -Infinity;
-let minY    = Infinity;
-let maxY    = -Infinity;
+
+let isWithinAOI = (a, b, radius) => {
+	let dx = b.x - a.x;
+	if (Math.abs(dx) > radius)
+		return false;
+	let dy = b.y - a.y;
+	if (Math.abs(dy) > radius)
+		return false;
+	return Math.sqrt(dx * dx + dy * dy) <= radius;
+};
+
+let aoiRadius        = 390;
+let sampleIntervalMS = 10 * 60 * 1000; // 10 minutes
+let nextSampleTS     = startTS + sampleIntervalMS;
+let oneHourMS        = 60 * 60 * 1000;
+
+let meanAOISizeStream = fs.openSync(dir + area + '-mean-aoi-size.csv', 'w');
+fs.writeSync(meanAOISizeStream, 'ts,sumAOISize,playerCount\n');
 
 (async () => {
 	progressBar.start(endTS - startTS, progress);
@@ -32,13 +44,14 @@ let maxY    = -Infinity;
 			let [ ts, id, x, y ] = line.split(',');
 			ts = +ts;
 
-			for (let player of Object.values(players)) {
-				let deltaTS = ts - lastTS;
-				let x = Math.floor(player.x);
-				let y = Math.floor(player.y);
-				heat[x] = heat[x] || [];
-				heat[x][y] = heat[x][y] || 0;
-				heat[x][y] += deltaTS;
+			let playersArray = Object.values(players);
+
+			while (nextSampleTS < ts) {
+				let sumAOISize = 0;
+				for (let player of playersArray)
+					sumAOISize += playersArray.filter(p => player.id !== p.id && isWithinAOI(player, p, aoiRadius)).length;
+				fs.writeSync(meanAOISizeStream, `${nextSampleTS},${sumAOISize},${playersArray.length}\n`);
+				nextSampleTS += sampleIntervalMS;
 			}
 
 			if (x == null) {
@@ -46,11 +59,7 @@ let maxY    = -Infinity;
 			} else {
 				x = +x;
 				y = -y;
-				minX = Math.min(Math.floor(x), minX);
-				maxX = Math.max(Math.floor(x), maxX);
-				minY = Math.min(Math.floor(y), minY);
-				maxY = Math.max(Math.floor(y), maxY);
-				players[id] = { x, y };
+				players[id] = { id, x, y, ts };
 			}
 
 			// Despawn zombie players
@@ -58,20 +67,10 @@ let maxY    = -Infinity;
 				if (player.ts + oneHourMS < ts)
 					delete players[player.id];
 
-			lastTS = ts;
 			progress = ts - startTS;
 			progressBar.update(progress);
 		}
 	}
 	progressBar.stop();
-
-	console.log('Writing heatmap...');
-	let heatMapStream = fs.openSync(dir + area + '-heatmap.csv', 'w');
-	for (let x = minX; x <= maxX; ++x) {
-		for (let y = minY; y <= maxY; ++y) {
-			let h = heat[x] == null ? 0 : heat[x][y] == null ? 0 : heat[x][y];
-			fs.writeSync(heatMapStream, `${x},${y},${h}\n`);
-		}
-	}
 	console.log('Done');
 })();
