@@ -104,7 +104,8 @@ class Simulation extends EventEmitter {
 					x: isEvil? (netPos.x * 1000000) : netPos.x,
 					y: isEvil? (netPos.y * 1000000) : netPos.y
 				},
-				evil: isEvil
+				evil: isEvil,
+				lastUpdate: player.ts
 			},
 			position: {
 				x: player.x || 0,
@@ -156,10 +157,11 @@ class Simulation extends EventEmitter {
 		return peer;
 	}
 
-	updatePos(peer, x, y) {
+	updatePos(peer, x, y, ts) {
 		peer.position({ x, y });
 		peer.scratch('_p2p-sim').gtPos[0] = x;
 		peer.scratch('_p2p-sim').gtPos[1] = y;
+		peer.data('lastUpdate', ts);
 	}
 
 	aoicast(peer, ts, id, bytes, aoiRadius, x, y) {
@@ -187,6 +189,12 @@ class Simulation extends EventEmitter {
 		this.network.releaseIP(peer.data('ip'));
 		this.world.remove(peer);
 		peer.scratch('_p2p-sim').postMessage({ event: 'exit' });
+	}
+
+	despawnZombies(ts) {
+		for (let peer of this.world.nodes().toArray())
+			if (peer.data('lastUpdate') + 3600000 < ts) // One hour since last update
+				this.despawn(peer);
 	}
 
 	inWideAOI(peerPos, otherPos) {

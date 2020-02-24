@@ -181,7 +181,7 @@ async function run({
 					peer = sim.getPeer(id);
 					sim.recomputeTopology(topology, ts);
 				} else {
-					sim.updatePos(peer, x, y);
+					sim.updatePos(peer, x, y, ts);
 				}
 				sim.aoicast(peer, ts, id, bytes, aoiRadius, x, y);
 				break;
@@ -209,6 +209,8 @@ async function run({
 			default:
 				throw 'Unknown event in trace: ' + event;
 		}
+
+		sim.despawnZombies(ts);
 	}
 	await sim.end();
 
