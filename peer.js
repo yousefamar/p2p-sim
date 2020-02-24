@@ -209,7 +209,7 @@ self.echo = ({ text } = {}) => {
 const updateQueue = new SortedArray([], u => u.ts + u.latency);
 
 let processUpdate = update => {
-	let { ts, latency, id: rootID, bytes, aoiRadius, sourceID, corruptionCounter } = update;
+	let { ts, latency, id: rootID, bytes, aoiRadius, sourceID, corruptionCount } = update;
 
 	if (rootID === ownID) { // Emitted
 		assert(sourceID == null);
@@ -237,7 +237,7 @@ let processUpdate = update => {
 
 			if (rootID in peers && peers[rootID].lastPosUpdate <= ts + latency) { // Outdated update
 				++stats.updates.ignored.total;
-				if (corruptionCounter > 0)
+				if (corruptionCount > 0)
 					++stats.updates.ignored.corrupt;
 				return; // Ignore
 			}
@@ -258,9 +258,9 @@ let processUpdate = update => {
 		}
 
 		++stats.updates.accepted.total;
-		if (corruptionCounter > 0) {
+		if (corruptionCount > 0) {
 			++stats.updates.accepted.corrupt;
-			stats.updates.accepted.corruptMag += corruptionCounter;
+			stats.updates.accepted.corruptMag += corruptionCount;
 		}
 
 		if (cantForward)
@@ -278,7 +278,7 @@ let processUpdate = update => {
 	++stats.updates.cast.total;
 
 	if (isEvil)
-		++stats.updates.corruptionCounter;
+		++update.corruptionCount;
 
 	for (let destID in peers) {
 		if (!canSend(rootID, sourceID, destID, aoiRadius))

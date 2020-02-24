@@ -232,14 +232,20 @@ async function run({
 			break;
 
 		case 'churn':
+			saveLineplot(sim.stats, 'meanMeanDrift', topology, workload, 'churn', churn);
+			saveLineplot(sim.stats, 'meanMissingRatio', topology, workload, 'churn', churn);
+			saveLineplot(sim.stats, 'meanExtraRatio', topology, workload, 'churn', churn);
 			saveLineplot(sim.stats, 'updates.sent.total', topology, workload, 'churn', churn);
 			saveLineplot(sim.stats, 'updates.dropped.dueToCooldown', topology, workload, 'churn', churn);
-			saveLineplot(sim.stats, 'updates.dropped.dueToLoss', topology, workload, 'churn', churn);
 			saveLineplot(sim.stats, 'updates.attemptedToSend', topology, workload, 'churn', churn);
 			break;
 
 		case 'loss':
 			saveLineplot(sim.stats, 'meanMeanDrift', topology, workload, 'lossRatio', lossRatio);
+			saveLineplot(sim.stats, 'meanMissingRatio', topology, workload, 'lossRatio', lossRatio);
+			saveLineplot(sim.stats, 'meanExtraRatio', topology, workload, 'lossRatio', lossRatio);
+			saveLineplot(sim.stats, 'updates.sent.total', topology, workload, 'lossRatio', lossRatio);
+			saveLineplot(sim.stats, 'updates.dropped.dueToLoss', topology, workload, 'lossRatio', lossRatio);
 			break;
 
 		case 'evil':
