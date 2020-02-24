@@ -1,7 +1,7 @@
 const fs = require('fs');
 const cliProgress = require('cli-progress');
 
-const dir = '/home/amar/share/mlrecs/';
+const dir = './traces/';
 const area = '3';
 
 const startTS  = new Date(2019, 11 - 1, 11).getTime();
