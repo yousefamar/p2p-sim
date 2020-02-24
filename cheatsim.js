@@ -4,11 +4,15 @@ const seedrandom = require('seedrandom');
 const Simulation = require('./simulation.js');
 const topologies = require('./topologies.js');
 
+const type = process.argv[2];
+if (!type) {
+	console.error('Missing type argument');
+	process.exit(1);
+}
+
 const dir = './share-out/data/';
-const maxDegreeStream = fs.openSync(dir + 'max-degree.csv', 'w');
-fs.writeSync(maxDegreeStream, `variable,sample,topology,workload\n`);
-const maxActiveDegreeStream = fs.openSync(dir + 'max-active-degree.csv', 'w');
-fs.writeSync(maxActiveDegreeStream, `variable,sample,topology,workload\n`);
+let maxDegreeStream = null;
+let maxActiveDegreeStream = null;
 
 const fileStreams = {};
 
@@ -122,11 +126,21 @@ async function run({
 		topoRecomputeInterval
 	});
 
-	sim.on('maxDegree', (peerCount, maxDegree) => {
-		fs.writeSync(maxDegreeStream, `${peerCount},${maxDegree},${topology.name},${workload[0]}\n`);
-	}).on('maxActiveDegree', (peerCount, maxActiveDegree) => {
-		fs.writeSync(maxActiveDegreeStream, `${peerCount},${maxActiveDegree},${topology.name},${workload[0]}\n`);
-	});
+	if (mode === 'plain') {
+		if (maxDegreeStream == null) {
+			maxDegreeStream = fs.openSync(dir + 'max-degree.csv', 'w');
+			fs.writeSync(maxDegreeStream, `variable,sample,topology,workload\n`);
+		}
+		if (maxActiveDegreeStream == null) {
+			maxActiveDegreeStream = fs.openSync(dir + 'max-active-degree.csv', 'w');
+			fs.writeSync(maxActiveDegreeStream, `variable,sample,topology,workload\n`);
+		}
+		sim.on('maxDegree', (peerCount, maxDegree) => {
+			fs.writeSync(maxDegreeStream, `${peerCount},${maxDegree},${topology.name},${workload[0]}\n`);
+		}).on('maxActiveDegree', (peerCount, maxActiveDegree) => {
+			fs.writeSync(maxActiveDegreeStream, `${peerCount},${maxActiveDegree},${topology.name},${workload[0]}\n`);
+		});
+	}
 
 	await sim.init();
 
@@ -305,49 +319,83 @@ let workloads = {
 			let lossRatio    = 0.0;
 			let chanceOfEvil = 0.0;
 
-			topo.clearstate(); // TODO: No longer neccessary
-			// Reseed PRNG for consistent results
-			seedrandom('yousef', { global: true });
-			console.log(`Playing back with parameters:
-	Workload:			${workload[0]}
-	AOI radius:			${aoiR}
-	Topology:			${topo.name}
-	Topology compute interval:	10000 ms
-	Max hops:			${maxHops}
-	Loss ratio:			${lossRatio}
-	Chance of evil:			${chanceOfEvil}`);
-			try {
-				await run({
-					workload: workload,
-					topology: topo,
-					// TODO: Dynamic AOI?
-					aoiR: aoiR,
-					topoRecomputeInterval: 10000,
-					maxHops: maxHops,
-					lossRatio: lossRatio,
-					chanceOfEvil: chanceOfEvil,
-					mode: 'plain'
-				});
-			} catch (e) {
-				console.error(e);
-				return;
-			}
+			if (type === '1') {
+				topo.clearstate(); // TODO: No longer neccessary
+				// Reseed PRNG for consistent results
+				seedrandom('yousef', { global: true });
+				console.log(`Playing back with parameters:
+		Workload:			${workload[0]}
+		AOI radius:			${aoiR}
+		Topology:			${topo.name}
+		Topology compute interval:	10000 ms
+		Max hops:			${maxHops}
+		Loss ratio:			${lossRatio}
+		Chance of evil:			${chanceOfEvil}`);
+				try {
+					await run({
+						workload: workload,
+						topology: topo,
+						// TODO: Dynamic AOI?
+						aoiR: aoiR,
+						topoRecomputeInterval: 10000,
+						maxHops: maxHops,
+						lossRatio: lossRatio,
+						chanceOfEvil: chanceOfEvil,
+						mode: 'plain'
+					});
+				} catch (e) {
+					console.error(e);
+					return;
+				}
 
-			if (workload[0] === 'synth-rwp') {
-				for (let churn = 0.0; churn <= 1.0; churn += 0.1) {
-					churn = parseFloat(churn.toFixed(1));
+				if (workload[0] === 'synth-rwp') {
+					for (let churn = 0.0; churn <= 1.0; churn += 0.1) {
+						churn = parseFloat(churn.toFixed(1));
+						topo.clearstate(); // TODO: No longer neccessary
+						// Reseed PRNG for consistent results
+						seedrandom('yousef', { global: true });
+						console.log(`Playing back with parameters:
+		Workload:			${workload[0]}
+		AOI radius:			${aoiR}
+		Topology:			${topo.name}
+		Topology compute interval:	10000 ms
+		Max hops:			${maxHops}
+		Loss ratio:			${lossRatio}
+		Chance of evil:			${chanceOfEvil}
+		Churn:				${churn}`);
+						try {
+							await run({
+								workload: workload,
+								topology: topo,
+								// TODO: Dynamic AOI?
+								aoiR: aoiR,
+								topoRecomputeInterval: 10000,
+								maxHops: maxHops,
+								lossRatio: lossRatio,
+								chanceOfEvil: chanceOfEvil,
+								mode: 'churn',
+								churn: churn
+							});
+						} catch (e) {
+							console.error(e);
+							return;
+						}
+					}
+				}
+			} else if (type === '2') {
+				for (chanceOfEvil = 0.0; chanceOfEvil <= 1.0; chanceOfEvil += 0.1) {
+					chanceOfEvil = parseFloat(chanceOfEvil.toFixed(1));
 					topo.clearstate(); // TODO: No longer neccessary
 					// Reseed PRNG for consistent results
 					seedrandom('yousef', { global: true });
 					console.log(`Playing back with parameters:
-	Workload:			${workload[0]}
-	AOI radius:			${aoiR}
-	Topology:			${topo.name}
-	Topology compute interval:	10000 ms
-	Max hops:			${maxHops}
-	Loss ratio:			${lossRatio}
-	Chance of evil:			${chanceOfEvil}
-	Churn:				${churn}`);
+		Workload:			${workload[0]}
+		AOI radius:			${aoiR}
+		Topology:			${topo.name}
+		Topology compute interval:	10000 ms
+		Max hops:			${maxHops}
+		Loss ratio:			${lossRatio}
+		Chance of evil:			${chanceOfEvil}`);
 					try {
 						await run({
 							workload: workload,
@@ -358,75 +406,43 @@ let workloads = {
 							maxHops: maxHops,
 							lossRatio: lossRatio,
 							chanceOfEvil: chanceOfEvil,
-							mode: 'churn',
-							churn: churn
+							mode: 'evil'
 						});
 					} catch (e) {
 						console.error(e);
 						return;
 					}
 				}
-			}
-
-			for (chanceOfEvil = 0.0; chanceOfEvil <= 1.0; chanceOfEvil += 0.1) {
-				chanceOfEvil = parseFloat(chanceOfEvil.toFixed(1));
-				topo.clearstate(); // TODO: No longer neccessary
-				// Reseed PRNG for consistent results
-				seedrandom('yousef', { global: true });
-				console.log(`Playing back with parameters:
-	Workload:			${workload[0]}
-	AOI radius:			${aoiR}
-	Topology:			${topo.name}
-	Topology compute interval:	10000 ms
-	Max hops:			${maxHops}
-	Loss ratio:			${lossRatio}
-	Chance of evil:			${chanceOfEvil}`);
-				try {
-					await run({
-						workload: workload,
-						topology: topo,
-						// TODO: Dynamic AOI?
-						aoiR: aoiR,
-						topoRecomputeInterval: 10000,
-						maxHops: maxHops,
-						lossRatio: lossRatio,
-						chanceOfEvil: chanceOfEvil,
-						mode: 'evil'
-					});
-				} catch (e) {
-					console.error(e);
-					return;
-				}
-			}
-			chanceOfEvil = 0.0;
-			for (lossRatio = 0.0; lossRatio <= 1.0; lossRatio += 0.1) {
-				lossRatio = parseFloat(lossRatio.toFixed(1));
-				topo.clearstate(); // TODO: No longer neccessary
-				// Reseed PRNG for consistent results
-				seedrandom('yousef', { global: true });
-				console.log(`Playing back with parameters:
-	Workload:			${workload[0]}
-	AOI radius:			${aoiR}
-	Topology:			${topo.name}
-	Topology compute interval:	10000 ms
-	Max hops:			${maxHops}
-	Loss ratio:			${lossRatio}
-	Chance of evil:			${chanceOfEvil}`);
-				try {
-					await run({
-						workload: workload,
-						topology: topo,
-						// TODO: Dynamic AOI?
-						aoiR: aoiR,
-						topoRecomputeInterval: 10000,
-						maxHops: maxHops,
-						lossRatio: lossRatio,
-						chanceOfEvil: chanceOfEvil,
-						mode: 'loss'
-					});
-				} catch (e) {
-					console.error(e);
-					return;
+				chanceOfEvil = 0.0;
+				for (lossRatio = 0.0; lossRatio <= 1.0; lossRatio += 0.1) {
+					lossRatio = parseFloat(lossRatio.toFixed(1));
+					topo.clearstate(); // TODO: No longer neccessary
+					// Reseed PRNG for consistent results
+					seedrandom('yousef', { global: true });
+					console.log(`Playing back with parameters:
+		Workload:			${workload[0]}
+		AOI radius:			${aoiR}
+		Topology:			${topo.name}
+		Topology compute interval:	10000 ms
+		Max hops:			${maxHops}
+		Loss ratio:			${lossRatio}
+		Chance of evil:			${chanceOfEvil}`);
+					try {
+						await run({
+							workload: workload,
+							topology: topo,
+							// TODO: Dynamic AOI?
+							aoiR: aoiR,
+							topoRecomputeInterval: 10000,
+							maxHops: maxHops,
+							lossRatio: lossRatio,
+							chanceOfEvil: chanceOfEvil,
+							mode: 'loss'
+						});
+					} catch (e) {
+						console.error(e);
+						return;
+					}
 				}
 			}
 		}
