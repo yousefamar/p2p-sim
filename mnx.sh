@@ -6,6 +6,7 @@
 yes | pkgin install git
 git clone https://github.com/yousefamar/p2p-sim.git
 cd p2p-sim
+mkdir traces
 cd traces
 wget amar.io/mlrecs/merged-3.csv
 wget amar.io/mlrecs/merged-starbucks.csv
