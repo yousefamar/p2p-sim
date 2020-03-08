@@ -68,9 +68,9 @@ const gcd = (...n) => n.length === 2 ? n[1] ? gcd(n[1], n[0] % n[1]) : n[0] : n.
 const avatars = [];
 
 module.exports = async function* ({
-	spawnIntervalMS   =  1 * 60 * 60 * 1000,
-	despawnIntervalMS =  2 * 60 * 60 * 1000,
-	durationMS        =  6 * 60 * 60 * 1000,
+	spawnIntervalMS   =       1 * 60 * 1000,
+	despawnIntervalMS =       2 * 60 * 1000,
+	durationMS        =  2 * 60 * 60 * 1000,
 	updateIntervalMS  = 700,
 	aoiRadius         = 390,
 	scene             = { width: 2000, height: 2000 },

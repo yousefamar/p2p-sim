@@ -10,6 +10,8 @@ if (!type) {
 	process.exit(1);
 }
 
+const NO_MESSAGING = false;
+
 const dir = './share-out/data/';
 let maxDegreeStream = null;
 let maxActiveDegreeStream = null;
@@ -105,7 +107,7 @@ async function run({
 	workload,
 	topology,
 	aoiR = 390,
-	topoRecomputeInterval = 1000,
+	topoRecomputeInterval = 30 * 1000,
 	maxHops = 3,
 	lossRatio = 0.0,
 	chanceOfEvil = 0.0,
@@ -123,7 +125,8 @@ async function run({
 		aoiRadius: aoiR,
 		maxHops,
 		topology,
-		topoRecomputeInterval
+		topoRecomputeInterval,
+		dryRun: NO_MESSAGING
 	});
 
 	if (mode === 'plain') {
@@ -309,7 +312,7 @@ let topos = Object.entries({
 });
 
 let workloads = {
-	'synth-rwp': require('./generators/synth-rwp.js'),
+	//'synth-rwp': require('./generators/synth-rwp.js'),
 	'trace-static':  require('./generators/trace-static.js'),
 	'trace-dynamic': require('./generators/trace-dynamic.js')
 };
@@ -349,6 +352,8 @@ let workloads = {
 					console.error(e);
 					return;
 				}
+				if (NO_MESSAGING)
+					continue;
 
 				if (workload[0] === 'synth-rwp') {
 					for (let churn = 0.0; churn <= 1.0; churn += 0.1) {
@@ -384,7 +389,6 @@ let workloads = {
 						}
 					}
 				}
-			} else if (type === '2') {
 				for (chanceOfEvil = 0.0; chanceOfEvil <= 1.0; chanceOfEvil += 0.1) {
 					chanceOfEvil = parseFloat(chanceOfEvil.toFixed(1));
 					topo.clearstate(); // TODO: No longer neccessary
@@ -415,6 +419,7 @@ let workloads = {
 						return;
 					}
 				}
+			} else if (type === '2') {
 				chanceOfEvil = 0.0;
 				for (lossRatio = 0.0; lossRatio <= 1.0; lossRatio += 0.1) {
 					lossRatio = parseFloat(lossRatio.toFixed(1));

@@ -97,8 +97,10 @@ class PLNetwork {
 	}
 
 	getIP() {
-		if (this.pool.length < 1)
-			throw 'PL IP pool exhausted!';
+		if (this.pool.length < 1) {
+			//throw 'PL IP pool exhausted!';
+			this.pool.push(...this.nodes.slice(0));
+		}
 		return this.pool.shift();
 	}
 

@@ -39,7 +39,15 @@ let recomputeWeight = function() {
 };
 
 class Simulation extends EventEmitter {
-	constructor({ lossRatio = 0.0, chanceOfEvil = 0.0, aoiRadius = 390, maxHops = 3, topology, topoRecomputeInterval } = {}) {
+	constructor({
+		lossRatio    = 0.0,
+		chanceOfEvil = 0.0,
+		aoiRadius    = 390,
+		maxHops      = 3,
+		topology,
+		topoRecomputeInterval,
+		dryRun       = false
+	} = {}) {
 		super();
 		this.nextMsgID = 0;
 		this.chanceOfEvil          = chanceOfEvil;
@@ -50,6 +58,7 @@ class Simulation extends EventEmitter {
 		this.topology              = topology;
 		this.topoRecomputeInterval = topoRecomputeInterval;
 		this.nextTopoRecomputeTS   = 0;
+		this.dryRun                = dryRun;
 		//this.metricWeights = [];
 		let network = this.network = new PLNetwork();
 		this.world = cytoscape()
@@ -83,6 +92,8 @@ class Simulation extends EventEmitter {
 	stats = [];
 
 	async end() {
+		if (this.dryRun)
+			return;
 		this.world.nodes().forEach(n => n.scratch('_p2p-sim').postMessage({ event: 'exit' }));
 		await Promise.all(this.exitPromises);
 	}
@@ -119,24 +130,27 @@ class Simulation extends EventEmitter {
 		peer.scratch('_p2p-sim').pmIndex = 0;
 		let actualPeerCount = this.world.scratch('_p2p-sim').actualPeerCount;
 		++actualPeerCount[0];
-		// TODO: Move this to add event listener
-		const worker = new Worker('./peer.js', {
-			workerData: { ...player, isEvil, lossRatio: this.lossRatio, topology: this.topology.constructor.name, gtPos, actualPeerCount }
-		});
-		//console.log('spawned', player);
-		worker.on('message', m => {
-			this.stats.push(m)
-			//worker.terminate();
-		});
-		worker.on('error', console.error);
-		this.exitPromises.push(new Promise(resolve => worker.on('exit', resolve)));
-		//peer.scratch('worker', worker);
-		//peer.scratch('wideAOI', new Set());
-		peer.scratch('_p2p-sim').worker = worker;
-		peer.scratch('_p2p-sim').postMessage({ event: 'supers', supers: this.latestSupers });
-		peer.scratch('_p2p-sim').postMessage({ event: 'peers', peers: this.world.nodes(`[ id != "${player.id}" ]`).map(n => ({ id: n.id(), gtPos: n.scratch('_p2p-sim').gtPos })) });
+		if (!this.dryRun) {
+			// TODO: Move this to add event listener
+			const worker = new Worker('./peer.js', {
+				workerData: { ...player, isEvil, lossRatio: this.lossRatio, topology: this.topology.constructor.name, gtPos, actualPeerCount }
+			});
+			//console.log('spawned', player);
+			worker.on('message', m => {
+				this.stats.push(m)
+				//worker.terminate();
+			});
+			worker.on('error', console.error);
+			this.exitPromises.push(new Promise(resolve => worker.on('exit', resolve)));
+			//peer.scratch('worker', worker);
+			//peer.scratch('wideAOI', new Set());
+			peer.scratch('_p2p-sim').worker = worker;
+			peer.scratch('_p2p-sim').postMessage({ event: 'supers', supers: this.latestSupers });
+			peer.scratch('_p2p-sim').postMessage({ event: 'peers', peers: this.world.nodes(`[ id != "${player.id}" ]`).map(n => ({ id: n.id(), gtPos: n.scratch('_p2p-sim').gtPos })) });
+		}
 		this.world.nodes(`[ id != "${player.id}"]`).forEach(other => {
-			other.scratch('_p2p-sim').postMessage({ event: 'peer', id: player.id, gtPos })
+			if (!this.dryRun)
+				other.scratch('_p2p-sim').postMessage({ event: 'peer', id: player.id, gtPos })
 			this.world.add({
 				data: {
 					id: player.id + '-' + other.id(),
@@ -182,13 +196,15 @@ class Simulation extends EventEmitter {
 			update.y = y;
 		}
 
-		peer.scratch('_p2p-sim').postMessage(update);
+		if (!this.dryRun)
+			peer.scratch('_p2p-sim').postMessage(update);
 	}
 
 	despawn(peer) {
 		this.network.releaseIP(peer.data('ip'));
 		this.world.remove(peer);
-		peer.scratch('_p2p-sim').postMessage({ event: 'exit' });
+		if (!this.dryRun)
+			peer.scratch('_p2p-sim').postMessage({ event: 'exit' });
 	}
 
 	despawnZombies(ts) {
@@ -217,11 +233,15 @@ class Simulation extends EventEmitter {
 		let targetPos = target.position();
 		let sourceGTPos = source.scratch('_p2p-sim').gtPos;
 		let targetGTPos = source.scratch('_p2p-sim').gtPos;
-		source.scratch('_p2p-sim').postMessage({ event: 'connect', id: target.id(), lat, active, x: targetPos.x, y: targetPos.y, gtPos: targetGTPos, port: port1 }, [port1]);
-		target.scratch('_p2p-sim').postMessage({ event: 'connect', id: source.id(), lat, active, x: sourcePos.x, y: sourcePos.y, gtPos: sourceGTPos, port: port2 }, [port2]);
+		if (!this.dryRun) {
+			source.scratch('_p2p-sim').postMessage({ event: 'connect', id: target.id(), lat, active, x: targetPos.x, y: targetPos.y, gtPos: targetGTPos, port: port1 }, [port1]);
+			target.scratch('_p2p-sim').postMessage({ event: 'connect', id: source.id(), lat, active, x: sourcePos.x, y: sourcePos.y, gtPos: sourceGTPos, port: port2 }, [port2]);
+		}
 	}
 
 	disconnectEdge(edge) {
+		if (this.dryRun)
+			return;
 		edge.scratch('_p2p-sim').postMessage({ event: 'disconnect' });
 	}
 
@@ -234,20 +254,28 @@ class Simulation extends EventEmitter {
 	}
 
 	activateEdge(edge) {
+		if (this.dryRun)
+			return;
 		edge.scratch('_p2p-sim').postMessage({ event: 'activate' });
 	}
 
 	deactivateEdge(edge) {
+		if (this.dryRun)
+			return;
 		edge.scratch('_p2p-sim').postMessage({ event: 'deactivate' });
 	}
 
 	broadcastTimestamp(ts) {
+		if (this.dryRun)
+			return;
 		for (let peer of this.world.nodes().toArray())
 			peer.scratch('_p2p-sim').postMessage({ event: 'time', ts });
 	}
 
 	broadcastSupers(supers = []) {
 		this.latestSupers = supers;
+		if (this.dryRun)
+			return;
 		for (let peer of this.world.nodes().toArray())
 			peer.scratch('_p2p-sim').postMessage({ event: 'supers', supers });
 	}
