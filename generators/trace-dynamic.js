@@ -5,8 +5,8 @@ const dir = './traces/';
 const area = '3';
 
 const startTS  = new Date(2019, 11 - 1, 11).getTime();
-//const endTS    = startTS + 100000;
-const endTS    = new Date(2019, 11 - 1, 18).getTime();
+const endTS    = startTS + 60 * 60 * 1000;
+//const endTS    = new Date(2019, 11 - 1, 18).getTime();
 
 module.exports = async function* () {
 	const traceStream = fs.createReadStream(dir + 'merged' + '-' + area + '.csv');

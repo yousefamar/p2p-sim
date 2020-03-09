@@ -112,8 +112,10 @@ class Simulation extends EventEmitter {
 				shortID: player.id,//.slice(-2),
 				ip: player.ip,
 				netPos: {
-					x: isEvil? (netPos.x * 1000000) : netPos.x,
-					y: isEvil? (netPos.y * 1000000) : netPos.y
+					//x: isEvil? (netPos.x * 1000000) : netPos.x,
+					//y: isEvil? (netPos.y * 1000000) : netPos.y
+					x: netPos.x,
+					y: netPos.y
 				},
 				evil: isEvil,
 				lastUpdate: player.ts
@@ -159,7 +161,7 @@ class Simulation extends EventEmitter {
 					active: false,
 					connected: false,
 					weight: -1,
-					lat: this.network.dist(player.ip, other.data().ip) + (isEvil ? 1000000000 : 0),
+					lat: this.network.dist(player.ip, other.data().ip) * (isEvil ? 2 : 1),
 					//lat: this.network.$id(player.ip).edgesWith(`[ id = "${other.data().ip}" ]`).data('meanLat'),
 					dist: -1,
 					trust: -1,

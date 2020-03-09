@@ -11,6 +11,7 @@ if (!type) {
 }
 
 const NO_MESSAGING = false;
+const APPEND       = false;
 
 const dir = './share-out/data/';
 let maxDegreeStream = null;
@@ -63,8 +64,9 @@ let zeroArrayUndefineds = a => {
 
 let saveTable = (stats, prop, topology, workload) => {
 	if (!(prop in fileStreams)) {
-		fileStreams[prop] = fs.openSync(dir + 'stats/' + prop + '.csv', 'w');
-		fs.writeSync(fileStreams[prop], `sample,topology,workload\n`);
+		fileStreams[prop] = fs.openSync(dir + 'stats/' + prop + '.csv', APPEND ? 'a' : 'w');
+		if (!APPEND)
+			fs.writeSync(fileStreams[prop], `sample,topology,workload\n`);
 	}
 	let fileStream = fileStreams[prop];
 	let props = stats.map(s => strToProp(s, prop));
@@ -75,8 +77,9 @@ let saveTable = (stats, prop, topology, workload) => {
 
 let saveDistribution = (stats, prop, topology, workload) => {
 	if (!(prop in fileStreams)) {
-		fileStreams[prop] = fs.openSync(dir + 'stats/' + prop + '.csv', 'w');
-		fs.writeSync(fileStreams[prop], `sample,topology,workload\n`);
+		fileStreams[prop] = fs.openSync(dir + 'stats/' + prop + '.csv', APPEND ? 'a' : 'w');
+		if (!APPEND)
+			fs.writeSync(fileStreams[prop], `sample,topology,workload\n`);
 	}
 	let fileStream = fileStreams[prop];
 	let props = stats.map(s => strToProp(s, prop));
@@ -88,8 +91,9 @@ let saveDistribution = (stats, prop, topology, workload) => {
 let saveLineplot = (stats, prop, topology, workload, variableName='playerCount', variable) => {
 	let filename = prop + '-' + variableName;
 	if (!(filename in fileStreams)) {
-		fileStreams[filename] = fs.openSync(dir + 'stats/' + filename + '.csv', 'w');
-		fs.writeSync(fileStreams[filename], `sample,variable,topology,workload\n`);
+		fileStreams[filename] = fs.openSync(dir + 'stats/' + filename + '.csv', APPEND ? 'a' : 'w');
+		if (!APPEND)
+			fs.writeSync(fileStreams[filename], `sample,variable,topology,workload\n`);
 	}
 	let fileStream = fileStreams[filename];
 	let props = stats.map(s => strToProp(s, prop));
@@ -131,12 +135,14 @@ async function run({
 
 	if (mode === 'plain') {
 		if (maxDegreeStream == null) {
-			maxDegreeStream = fs.openSync(dir + 'max-degree.csv', 'w');
-			fs.writeSync(maxDegreeStream, `variable,sample,topology,workload\n`);
+			maxDegreeStream = fs.openSync(dir + 'max-degree.csv', APPEND ? 'a' : 'w');
+			if (!APPEND)
+				fs.writeSync(maxDegreeStream, `variable,sample,topology,workload\n`);
 		}
 		if (maxActiveDegreeStream == null) {
-			maxActiveDegreeStream = fs.openSync(dir + 'max-active-degree.csv', 'w');
-			fs.writeSync(maxActiveDegreeStream, `variable,sample,topology,workload\n`);
+			maxActiveDegreeStream = fs.openSync(dir + 'max-active-degree.csv', APPEND ? 'a' : 'w');
+			if (!APPEND)
+				fs.writeSync(maxActiveDegreeStream, `variable,sample,topology,workload\n`);
 		}
 		sim.on('maxDegree', (peerCount, maxDegree) => {
 			fs.writeSync(maxDegreeStream, `${peerCount},${maxDegree},${topology.name},${workload[0]}\n`);
@@ -268,9 +274,13 @@ async function run({
 			break;
 
 		case 'evil':
+			saveLineplot(sim.stats, 'meanMeanDrift', topology, workload, 'chanceOfEvil', chanceOfEvil);
+			saveLineplot(sim.stats, 'meanMissingRatio', topology, workload, 'chanceOfEvil', chanceOfEvil);
+			saveLineplot(sim.stats, 'meanExtraRatio', topology, workload, 'chanceOfEvil', chanceOfEvil);
 			saveLineplot(sim.stats, 'updates.ignored.corrupt', topology, workload, 'chanceOfEvil', chanceOfEvil);
 			saveLineplot(sim.stats, 'updates.accepted.corrupt', topology, workload, 'chanceOfEvil', chanceOfEvil);
 			saveLineplot(sim.stats, 'updates.accepted.corruptMag', topology, workload, 'chanceOfEvil', chanceOfEvil);
+			saveLineplot(sim.stats, 'updates.received.total', topology, workload, 'chanceOfEvil', chanceOfEvil);
 			break;
 
 		default:
@@ -293,19 +303,19 @@ const aoiR         = 390;
 const maxHops      = 3;
 
 let topos = Object.entries({
-	'ClientServer': {},
-	'Complete': {},
-	// FIXME: AOI radius is hardcoded in here
-	'AOI': { aoiRadius: aoiR },
-	'Delaunay': {},
+	//'ClientServer': {},
+	//'Complete': {},
+	//// FIXME: AOI radius is hardcoded in here
+	//'AOI': { aoiRadius: aoiR },
+	//'Delaunay': {},
+	//'Superpeers (n = 2)': { cls: 'Superpeers', superpeerCount: 2 },
+	//'Superpeers (n = 3)': { cls: 'Superpeers', superpeerCount: 3 },
+	//'SuperpeersK (n = 2)': { cls: 'Superpeers', superpeerCount: 2, shouldUseKmeans: true },
+	//'SuperpeersK (n = 3)': { cls: 'Superpeers', superpeerCount: 3, shouldUseKmeans: true },
+	//'Ours (minK = 1)': { cls: 'Ours', minK: 1 },
+	//'Ours (minK = 2)': { cls: 'Ours', minK: 2 },
 	'Kiwano': {},
-	'Chord': {},
-	'Superpeers (n = 2)': { cls: 'Superpeers', superpeerCount: 2 },
-	'Superpeers (n = 3)': { cls: 'Superpeers', superpeerCount: 3 },
-	'SuperpeersK (n = 2)': { cls: 'Superpeers', superpeerCount: 2, shouldUseKmeans: true },
-	'SuperpeersK (n = 3)': { cls: 'Superpeers', superpeerCount: 3, shouldUseKmeans: true },
-	'Ours (minK = 1)': { cls: 'Ours', minK: 1 },
-	'Ours (minK = 2)': { cls: 'Ours', minK: 2 }
+	'Chord': {}
 }).map(t => {
 	t[1].name = t[0];
 	return new topologies[t[1].cls || t[0]](t[1]);
@@ -324,7 +334,7 @@ let workloads = {
 			let lossRatio    = 0.0;
 			let chanceOfEvil = 0.0;
 
-			if (type === '1') {
+			if (type === '0') {
 				topo.clearstate(); // TODO: No longer neccessary
 				// Reseed PRNG for consistent results
 				seedrandom('yousef', { global: true });
@@ -389,6 +399,7 @@ let workloads = {
 						}
 					}
 				}
+			} else if (type === 'cheat') {
 				for (chanceOfEvil = 0.0; chanceOfEvil <= 1.0; chanceOfEvil += 0.1) {
 					chanceOfEvil = parseFloat(chanceOfEvil.toFixed(1));
 					topo.clearstate(); // TODO: No longer neccessary

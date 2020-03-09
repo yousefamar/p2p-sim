@@ -277,7 +277,7 @@ let processUpdate = update => {
 
 	++stats.updates.cast.total;
 
-	if (isEvil)
+	if (isEvil && !(topology === 'ClientServer' && supers.has(ownID)))
 		++update.corruptionCount;
 
 	for (let destID in peers) {
@@ -299,7 +299,7 @@ let processUpdate = update => {
 		}
 
 		update.sourceID = ownID;
-		update.latency  = latency + peers[destID].lat;
+		update.latency  = latency + (topology === 'ClientServer' && supers.has(ownID)) ? peers[destID].lat / 2 : peers[destID].lat;
 		peers[destID].port.postMessage(update);
 
 		++stats.updates.sent.total;
