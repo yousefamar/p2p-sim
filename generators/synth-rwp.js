@@ -70,7 +70,7 @@ const avatars = [];
 module.exports = async function* ({
 	spawnIntervalMS   =       1 * 60 * 1000,
 	despawnIntervalMS =       2 * 60 * 1000,
-	durationMS        =      30 * 60 * 1000,
+	durationMS        =      60 * 60 * 1000,
 	updateIntervalMS  = 700,
 	aoiRadius         = 390,
 	scene             = { width: 2000, height: 2000 },
@@ -98,9 +98,10 @@ module.exports = async function* ({
 				yield [ 'u', ts, avatar.id, 28 + 1 + 8 + 2 + 4 + 4 + 2, aoiRadius, avatar.x, avatar.y ];
 		}
 		if (!(ts % despawnIntervalMS)) {
-			let avatar = avatars.splice(Math.floor(Math.random() * avatars.length), 1);
-			if (avatars.length)
+			if (avatars.length) {
+				let avatar = avatars.splice(Math.floor(Math.random() * avatars.length), 1)[0];
 				yield [ 'd', ts, avatar.id, 28 + 1 + 8 + 2 + 2, aoiRadius ];
+			}
 		}
 		progressBar.update(ts);
 	}

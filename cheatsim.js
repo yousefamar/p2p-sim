@@ -13,11 +13,19 @@ if (!type) {
 const NO_MESSAGING = false;
 const APPEND       = false;
 
-const dir = './share-out/data/';
-let maxDegreeStream = null;
-let maxActiveDegreeStream = null;
+const dir = './share-out/data-churn/';
 
 const fileStreams = {};
+
+let getFilestream2D = (prop, variableName) => {
+	let filename = prop + '-' + variableName;
+	if (!(filename in fileStreams)) {
+		fileStreams[filename] = fs.openSync(dir + 'stats/' + filename + '.csv', APPEND ? 'a' : 'w');
+		if (!APPEND)
+			fs.writeSync(fileStreams[filename], `sample,variable,topology,workload\n`);
+	}
+	return fileStreams[filename];
+};
 
 let checkStatsConsistency = stats => {
 	for (let stat of stats) {
@@ -89,13 +97,7 @@ let saveDistribution = (stats, prop, topology, workload) => {
 };
 
 let saveLineplot = (stats, prop, topology, workload, variableName='playerCount', variable) => {
-	let filename = prop + '-' + variableName;
-	if (!(filename in fileStreams)) {
-		fileStreams[filename] = fs.openSync(dir + 'stats/' + filename + '.csv', APPEND ? 'a' : 'w');
-		if (!APPEND)
-			fs.writeSync(fileStreams[filename], `sample,variable,topology,workload\n`);
-	}
-	let fileStream = fileStreams[filename];
+	let fileStream = getFilestream2D(prop, variableName);
 	let props = stats.map(s => strToProp(s, prop));
 	props.forEach(p => {
 		if (variableName === 'playerCount') {
@@ -130,24 +132,31 @@ async function run({
 		maxHops,
 		topology,
 		topoRecomputeInterval,
-		dryRun: NO_MESSAGING
+		dryRun: NO_MESSAGING,
+		mode
 	});
 
 	if (mode === 'plain') {
-		if (maxDegreeStream == null) {
-			maxDegreeStream = fs.openSync(dir + 'max-degree.csv', APPEND ? 'a' : 'w');
-			if (!APPEND)
-				fs.writeSync(maxDegreeStream, `variable,sample,topology,workload\n`);
-		}
-		if (maxActiveDegreeStream == null) {
-			maxActiveDegreeStream = fs.openSync(dir + 'max-active-degree.csv', APPEND ? 'a' : 'w');
-			if (!APPEND)
-				fs.writeSync(maxActiveDegreeStream, `variable,sample,topology,workload\n`);
-		}
-		sim.on('maxDegree', (peerCount, maxDegree) => {
-			fs.writeSync(maxDegreeStream, `${peerCount},${maxDegree},${topology.name},${workload[0]}\n`);
-		}).on('maxActiveDegree', (peerCount, maxActiveDegree) => {
-			fs.writeSync(maxActiveDegreeStream, `${peerCount},${maxActiveDegree},${topology.name},${workload[0]}\n`);
+		let maxDegreeStream       = getFilestream2D('maxDegree', 'playerCount');
+		let maxActiveDegreeStream = getFilestream2D('maxActiveDegree', 'playerCount');
+
+		sim.on('maxDegree', (maxDegree, peerCount) => {
+			fs.writeSync(maxDegreeStream, `${maxDegree},${peerCount},${topology.name},${workload[0]}\n`);
+		}).on('maxActiveDegree', (maxActiveDegree, peerCount) => {
+			fs.writeSync(maxActiveDegreeStream, `${maxActiveDegree},${peerCount},${topology.name},${workload[0]}\n`);
+		});
+	} else if (mode === 'evil') {
+		[
+			'meanBetweenness',
+			'meanBetweennessNormalized',
+			'meanBetweennessDelays',
+			'meanBetweennessNormalizedDelays',
+			'maxDrift'
+		].forEach(event => {
+			let fileStream = getFilestream2D(event, 'chanceOfEvil');
+			sim.on(event, (sample, variable) => {
+				fs.writeSync(fileStream, `${sample},${variable},${topology.name},${workload[0]}\n`);
+			});
 		});
 	}
 
@@ -157,10 +166,11 @@ async function run({
 
 	if (mode === 'churn') {
 		// Range between 1m and 1h
-		let interval = (churn * ((1 * 60 * 60 * 1000) - 20 * 60 * 1000)) + 20 * 60 * 1000;
+		let interval = (churn * ((1 * 60 * 1000) - 60 * 60 * 1000)) + 60 * 60 * 1000;
 		args = {
 			spawnIntervalMS: interval,
 			despawnIntervalMS: interval,
+			durationMS: 60 * 60 * 1000,
 			startCount: 10
 		};
 	}
@@ -176,7 +186,7 @@ async function run({
 		let x, y, peer;
 
 		if (ts >= sim.nextTopoRecomputeTS)
-			sim.recomputeTopology(topology, ts);
+			await sim.recomputeTopology(topology, ts);
 
 		switch (event) {
 			case 's': // Spawn
@@ -188,7 +198,7 @@ async function run({
 				if (peer.length < 1) {
 					sim.spawn({ ts, id, x, y });
 					peer = sim.getPeer(id);
-					sim.recomputeTopology(topology, ts);
+					await sim.recomputeTopology(topology, ts);
 				} else {
 					sim.updatePos(peer, x, y, ts);
 				}
@@ -212,7 +222,7 @@ async function run({
 					break;
 				sim.aoicast(peer, ts, id, bytes, aoiRadius);
 				sim.despawn(peer);
-				sim.recomputeTopology(topology, ts);
+				await sim.recomputeTopology(topology, ts);
 				break;
 
 			default:
@@ -303,17 +313,18 @@ const aoiR         = 390;
 const maxHops      = 3;
 
 let topos = Object.entries({
-	//'ClientServer': {},
-	//'Complete': {},
-	//// FIXME: AOI radius is hardcoded in here
-	//'AOI': { aoiRadius: aoiR },
-	//'Delaunay': {},
-	//'Superpeers (n = 2)': { cls: 'Superpeers', superpeerCount: 2 },
-	//'Superpeers (n = 3)': { cls: 'Superpeers', superpeerCount: 3 },
-	//'SuperpeersK (n = 2)': { cls: 'Superpeers', superpeerCount: 2, shouldUseKmeans: true },
-	//'SuperpeersK (n = 3)': { cls: 'Superpeers', superpeerCount: 3, shouldUseKmeans: true },
-	//'Ours (minK = 1)': { cls: 'Ours', minK: 1 },
-	//'Ours (minK = 2)': { cls: 'Ours', minK: 2 },
+	'ClientServer': {},
+	'Complete': {},
+	// FIXME: AOI radius is hardcoded in here
+	'AOI': { aoiRadius: aoiR },
+	'Delaunay': {},
+	'Superpeers (n = 2)': { cls: 'Superpeers', superpeerCount: 2 },
+	'Superpeers (n = 3)': { cls: 'Superpeers', superpeerCount: 3 },
+	'SuperpeersK (n = 2)': { cls: 'Superpeers', superpeerCount: 2, shouldUseKmeans: true },
+	'SuperpeersK (n = 3)': { cls: 'Superpeers', superpeerCount: 3, shouldUseKmeans: true },
+	'Ours (minK = 1)': { cls: 'Ours', minK: 1 },
+	'Ours (minK = 2)': { cls: 'Ours', minK: 2 },
+	'Ours (minK = 10)': { cls: 'Ours', minK: 10 },
 	'Kiwano': {},
 	'Chord': {}
 }).map(t => {
@@ -322,9 +333,9 @@ let topos = Object.entries({
 });
 
 let workloads = {
-	//'synth-rwp': require('./generators/synth-rwp.js'),
-	'trace-static':  require('./generators/trace-static.js'),
-	'trace-dynamic': require('./generators/trace-dynamic.js')
+	'synth-rwp': require('./generators/synth-rwp.js')
+	//'trace-static':  require('./generators/trace-static.js'),
+	//'trace-dynamic': require('./generators/trace-dynamic.js')
 };
 
 
@@ -334,7 +345,7 @@ let workloads = {
 			let lossRatio    = 0.0;
 			let chanceOfEvil = 0.0;
 
-			if (type === '0') {
+			if (type === 'plain') {
 				topo.clearstate(); // TODO: No longer neccessary
 				// Reseed PRNG for consistent results
 				seedrandom('yousef', { global: true });
@@ -364,6 +375,8 @@ let workloads = {
 				}
 				if (NO_MESSAGING)
 					continue;
+
+			} else if (type === 'churn') {
 
 				if (workload[0] === 'synth-rwp') {
 					for (let churn = 0.0; churn <= 1.0; churn += 0.1) {

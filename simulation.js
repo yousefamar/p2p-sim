@@ -6,6 +6,7 @@ cytoscape.use(euler);
 const {
 	Worker, isMainThread, parentPort, workerData, MessageChannel
 } = require('worker_threads');
+//const saveGraph = require('./save-graph.js');
 
 if (!isMainThread)
 	throw "Simulator must run in main thread"
@@ -46,7 +47,8 @@ class Simulation extends EventEmitter {
 		maxHops      = 3,
 		topology,
 		topoRecomputeInterval,
-		dryRun       = false
+		dryRun       = false,
+		mode         = 'plain'
 	} = {}) {
 		super();
 		this.nextMsgID = 0;
@@ -59,6 +61,7 @@ class Simulation extends EventEmitter {
 		this.topoRecomputeInterval = topoRecomputeInterval;
 		this.nextTopoRecomputeTS   = 0;
 		this.dryRun                = dryRun;
+		this.mode                  = mode;
 		//this.metricWeights = [];
 		let network = this.network = new PLNetwork();
 		this.world = cytoscape()
@@ -161,7 +164,9 @@ class Simulation extends EventEmitter {
 					active: false,
 					connected: false,
 					weight: -1,
-					lat: this.network.dist(player.ip, other.data().ip) * (isEvil ? 2 : 1),
+					lat: this.network.dist(player.ip, other.data().ip) * (1 + (isEvil ? 1 : 0) + (other.data('evil') ? 1 : 0)),
+					//lat: this.network.dist(player.ip, other.data().ip),
+					//lat: this.network.dist(player.ip, other.data().ip) * (isEvil ? 2 : 1),
 					//lat: this.network.$id(player.ip).edgesWith(`[ id = "${other.data().ip}" ]`).data('meanLat'),
 					dist: -1,
 					trust: -1,
@@ -312,7 +317,7 @@ class Simulation extends EventEmitter {
 			this.broadcastSupers(this.world.nodes('[?super]').map(n => n.id()));
 	}
 
-	recomputeTopology(ts) {
+	async recomputeTopology(ts) {
 		this.world.edges('[?dirty]').forEach(e => e.scratch('_p2p-sim').recomputeWeight());
 		this.topology.recompute(this.world, this);
 		this.topology.preconnect(this.world, this);
@@ -326,9 +331,54 @@ class Simulation extends EventEmitter {
 			maxActiveDegree = Math.max(maxActiveDegree, n.neighborhood('edge[?active]').length);
 		});
 
-		let peerCount = this.world.nodes().length;
-		this.emit('maxDegree', peerCount, maxDegree);
-		this.emit('maxActiveDegree', peerCount, maxActiveDegree);
+		if (this.mode === 'plain') {
+			let peerCount = this.world.nodes().length;
+			this.emit('maxDegree', maxDegree, peerCount);
+			this.emit('maxActiveDegree', maxActiveDegree, peerCount);
+		} else if (this.mode === 'evil') {
+			let evils = this.world.nodes('[?evil]');
+			//let bc = this.world.elements('node, edge[?active]').betweennessCentrality();
+			let activeElements = cytoscape({ elements: this.world.elements('node, edge[?active]').jsons() }).elements();
+
+			let bc = activeElements.betweennessCentrality();
+
+			//if (this.world.nodes().length > 2) {
+			//	//await saveGraph(this.world, './out/snapshots/debug.png');
+			//	console.log(this.world.nodes()[0].neighborhood('edge[?active]').length);
+			//}
+
+			let bets = evils.map(bc.betweenness);
+			let meanBet = bets.length > 0 ? bets.reduce((a, b) => a + b) / bets.length : 0;
+			this.emit('meanBetweenness', meanBet, this.chanceOfEvil);
+
+			let betsN = evils.map(bc.betweennessNormalized);
+			let meanBetN = betsN.length > 0 ? betsN.reduce((a, b) => a + b) / betsN.length : 0;
+			this.emit('meanBetweennessNormalized', meanBetN, this.chanceOfEvil);
+
+			bc = activeElements.betweennessCentrality({
+				weight: e => e.data('lat')
+			});
+
+			bets = evils.map(bc.betweenness);
+			meanBet = bets.length > 0 ? bets.reduce((a, b) => a + b) / bets.length : 0;
+			this.emit('meanBetweennessDelays', meanBet, this.chanceOfEvil);
+
+			betsN = evils.map(bc.betweennessNormalized);
+			meanBetN = betsN.length > 0 ? betsN.reduce((a, b) => a + b) / betsN.length : 0;
+			this.emit('meanBetweennessNormalizedDelays', meanBetN, this.chanceOfEvil);
+
+			let fw = activeElements.floydWarshall({
+				weight: e => e.data('lat')
+			});
+
+			let maxLat = 0;
+			let peers = activeElements.nodes().toArray();
+			for (let i = 0; i < peers.length; ++i)
+				for (let j = i + 1; j < peers.length; ++j)
+					maxLat = Math.max(maxLat, fw.distance(peers[i], peers[j]));
+			let maxDrift = maxLat * (130 / 1000);
+			this.emit('maxDrift', maxDrift, this.chanceOfEvil);
+		}
 	}
 
 	/*
