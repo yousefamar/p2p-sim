@@ -181,7 +181,7 @@ self.exit = () => {
 	stats.meanDownload = stats.timeAliveMS ? sumDownloadBytes / stats.timeAliveMS : 0;
 
 	// FIXME: Hardcoded
-	let timePerSegment = 2 * 60 * 60 * 1000;
+	let timePerSegment = 2 * 60 * 1000;
 
 	stats.meanUploads   = [];
 	for (let i = 0, len = stats.updates.uploaded.bytes.length; i < len; ++i)
